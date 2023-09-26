@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.16...3.26)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
 
-set(WHISPER_VERSION 1.2.1)
-
 project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" OFF)
@@ -14,11 +12,11 @@ include(defaults)
 include(helpers)
 include(FetchContent)
 
+set(WHISPER_VERSION 1.2.1)
 FetchContent_Declare(
   whisper
   URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPER_VERSION}.zip"
 )
-
 FetchContent_MakeAvailable(whisper)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE)
@@ -44,6 +42,6 @@ if(ENABLE_QT)
                AUTORCC ON)
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c "src/source.c")
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.c)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
