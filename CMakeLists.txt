@@ -10,19 +10,19 @@ option(ENABLE_QT "Use Qt functionality" OFF)
 include(compilerconfig)
 include(defaults)
 include(helpers)
-include(FetchContent)
+#include(FetchContent)
 
-set(WHISPER_VERSION 1.2.1)
-FetchContent_Declare(
-  whisper
-  URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPER_VERSION}.zip"
-)
-FetchContent_MakeAvailable(whisper)
+#set(WHISPER_VERSION 1.2.1)
+#FetchContent_Declare(
+#  whisper
+#  URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPER_VERSION}.zip"
+#)
+#FetchContent_MakeAvailable(whisper)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE)
 
 find_package(libobs REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs whisper)
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
 if(ENABLE_FRONTEND_API)
   find_package(obs-frontend-api REQUIRED)
@@ -42,6 +42,6 @@ if(ENABLE_QT)
                AUTORCC ON)
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.c)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.c src/ggml.c src/whisper.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

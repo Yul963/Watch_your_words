@@ -1,6 +1,7 @@
 #include <obs-module.h>
 #include <media-io/audio-math.h>
 #include <math.h>
+#include <media-io/audio-io.h>
 
 #include "whisper.h"
 #include "ggml.h"
