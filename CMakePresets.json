@@ -51,11 +51,10 @@
       "architecture": "x64",
       "warnings": {"dev": true, "deprecated": true},
       "cacheVariables": {
-        "QT_VERSION": "6",
-        //"CMAKE_SYSTEM_VERSION": "10.0.19045",
         "CMAKE_SYSTEM_VERSION": "10.0.22000.0",
         "ENABLE_FRONTEND_API": false,
-        "ENABLE_QT": false
+        "ENABLE_QT": false,
+        "QT_VERSION": "6"
       }
     },
     {
