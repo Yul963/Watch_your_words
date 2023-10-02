@@ -13,7 +13,6 @@ if(UNIX AND NOT APPLE)
   set(WHISPER_EXTRA_CXX_FLAGS "-fPIC")
 endif()
 
-
 ExternalProject_Add(
   Whispercpp_Build
   DOWNLOAD_EXTRACT_TIMESTAMP true
@@ -24,8 +23,12 @@ ExternalProject_Add(
     <INSTALL_DIR>/bin/${CMAKE_SHARED_LIBRARY_PREFIX}whisper${CMAKE_SHARED_LIBRARY_SUFFIX}
     <INSTALL_DIR>/lib/${CMAKE_IMPORT_LIBRARY_PREFIX}whisper${CMAKE_IMPORT_LIBRARY_SUFFIX}
   CMAKE_GENERATOR ${CMAKE_GENERATOR}
+  #if(WIN32)
   INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config ${Whispercpp_BUILD_TYPE}
-                   && ${CMAKE_COMMAND} -E copy <BINARY_DIR>/${Whispercpp_BUILD_TYPE}/whisper${CMAKE_STATIC_LIBRARY_SUFFIX} <INSTALL_DIR>/lib
+  #                 && ${CMAKE_COMMAND} -E copy <BINARY_DIR>/${Whispercpp_BUILD_TYPE}/whisper${CMAKE_STATIC_LIBRARY_SUFFIX} <INSTALL_DIR>/lib
+  #else()
+  #  INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config ${Whispercpp_BUILD_TYPE}
+  #endif()
   CONFIGURE_COMMAND
     ${CMAKE_COMMAND} -E env ${WHISPER_ADDITIONAL_ENV} ${CMAKE_COMMAND} <SOURCE_DIR> -B <BINARY_DIR> -G
     ${CMAKE_GENERATOR} -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DCMAKE_BUILD_TYPE=${Whispercpp_BUILD_TYPE}
@@ -35,7 +38,6 @@ ExternalProject_Add(
     -DWHISPER_BUILD_EXAMPLES=OFF  -DWHISPER_BLAS=OFF -DWHISPER_CUBLAS=OFF)
 
 ExternalProject_Get_Property(Whispercpp_Build INSTALL_DIR)
-
 
 add_library(Whispercpp::Whisper SHARED IMPORTED)
 set_target_properties(
