@@ -1,8 +1,6 @@
 #include <obs-module.h>
 #include <obs.h>
-#include <media-io/audio-math.h>
 #include <math.h>
-#include <media-io/audio-io.h>
 
 #include "whisper.h"
 #define do_log(level, format, ...)                 \
@@ -42,7 +40,7 @@ static void gain_update(void *data, obs_data_t *s)
 	struct gain_data *gf = (struct gain_data *)data;
 	double val = obs_data_get_double(s, S_GAIN_DB);
 	gf->channels = audio_output_get_channels(obs_get_audio());
-	gf->multiple = db_to_mul((float)val);
+	//gf->multiple = db_to_mul((float)val);
 }
 
 static void *gain_create(obs_data_t *settings, obs_source_t *filter)
