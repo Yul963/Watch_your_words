@@ -1,5 +1,6 @@
 #include <obs-module.h>
-#include <media-io/audio-math.h>
+#include <obs.h>
+#include<media-io/audio-math.h>
 #include <math.h>
 #include <media-io/audio-io.h>
 
