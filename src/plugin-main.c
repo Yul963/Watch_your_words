@@ -22,7 +22,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
-//extern struct obs_source_info gain_filter;
+extern struct obs_source_info gain_filter;
 
 MODULE_EXPORT const char *obs_module_description(void)
 {

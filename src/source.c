@@ -32,7 +32,6 @@ struct wyw_data {
 static const char *wyw_name(void *unused)
 {
 	UNUSED_PARAMETER(unused);
-	
 	return MT_("WatchYourWord");
 }
 
@@ -108,12 +107,19 @@ static obs_properties_t *wyw_properties(void *data)
 		ppts, S_wyw_DB, TEXT_wyw_DB, -30.0, 30.0, 0.1);
 	obs_property_float_set_suffix(p, " dB");
 
+	obs_properties_add_editable_list(
+		ppts,
+		"ban list",
+		MT_("ban list"),
+		OBS_EDITABLE_LIST_TYPE_STRINGS,
+		NULL, NULL);
+
 	UNUSED_PARAMETER(data);
 	return ppts;
 }
 
-struct obs_source_info watch_your_words = {
-	.id = "watch_your_words",
+struct obs_source_info gain_filter = {
+	.id = "WatchYourWord",
 	.type = OBS_SOURCE_TYPE_FILTER,
 	.output_flags = OBS_SOURCE_AUDIO,
 	.get_name = wyw_name,
