@@ -29,9 +29,11 @@ MODULE_EXPORT const char *obs_module_description(void)
 	return "filtering curses.";
 }
 
+extern struct obs_source_info watch_your_words;
+
 bool obs_module_load(void)
 {
-	obs_register_source(&gain_filter);
+	obs_register_source(&watch_your_words);
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)",
 		PLUGIN_VERSION);
 	return true;
