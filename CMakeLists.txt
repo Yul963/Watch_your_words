@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16...3.26)
+﻿cmake_minimum_required(VERSION 3.16...3.26)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/common/bootstrap.cmake" NO_POLICY_SCOPE)
 
@@ -6,6 +6,7 @@ project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
+option(LOCALVOCAL_WITH_CUDA "Build with CUDA support. (Windows, CUDA toolkit required)" ON)
 
 include(compilerconfig)
 include(defaults)
@@ -37,6 +38,6 @@ endif()
 include(cmake/BuildWhispercpp.cmake)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Whispercpp)
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.cpp src/source.c)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
