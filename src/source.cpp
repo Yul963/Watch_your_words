@@ -713,6 +713,21 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_properties_add_editable_list(ppts,"ban list",MT_("ban list"),OBS_EDITABLE_LIST_TYPE_STRINGS,NULL, NULL);
 
+	obs_property_t *ban_list_property = obs_properties_get(ppts, "ban list");
+
+	obs_property_set_modified_callback2(
+		ban_list_property,
+		[](void *data, obs_properties_t *props,
+		   obs_property_t *property, obs_data_t *settings) {
+			obs_log(LOG_INFO, "ban_list modified");
+			UNUSED_PARAMETER(property);
+			UNUSED_PARAMETER(props);
+			struct wyw_source_data *wf =
+				static_cast<struct wyw_source_data *>(data);
+			return true;
+		},
+		wf);
+
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
