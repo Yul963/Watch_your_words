@@ -1,4 +1,4 @@
-#ifndef WHISPER_LANGUAGE_H
+﻿#ifndef WHISPER_LANGUAGE_H
 #define WHISPER_LANGUAGE_H
 
 #include <map>

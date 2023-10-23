@@ -1,4 +1,4 @@
-#ifndef WYW_SOURCE_DATA_H
+﻿#ifndef WYW_SOURCE_DATA_H
 #define WYW_SOURCE_DATA_H
 
 #include <obs-module.h>

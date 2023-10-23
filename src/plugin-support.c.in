@@ -1,4 +1,4 @@
-/*
+﻿/*
 Plugin Name
 Copyright (C) <Year> <Developer> <Email Address>
 

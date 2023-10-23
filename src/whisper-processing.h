@@ -1,4 +1,4 @@
-#ifndef WHISPER_PROCESSING_H
+﻿#ifndef WHISPER_PROCESSING_H
 #define WHISPER_PROCESSING_H
 
 // buffer size in msec

@@ -1,4 +1,4 @@
-#include <obs-module.h>
+﻿#include <obs-module.h>
 #include <plugin-support.h>
 
 OBS_DECLARE_MODULE()

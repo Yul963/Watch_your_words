@@ -8,9 +8,10 @@
 
 #include <algorithm>
 #include <cctype>
-
-#define VAD_THOLD 0.0001f
+#include <codecvt>
+#define VAD_THOLD 0.6f
 #define FREQ_THOLD 100.0f
+std::ofstream fout;
 
 std::string to_timestamp(int64_t t)//수정
 {
@@ -39,31 +40,44 @@ void high_pass_filter(float *pcmf32, size_t pcm32f_size, float cutoff, uint32_t 
 	}
 }
 
-bool vad_simple(float *pcmf32, size_t pcm32f_size, uint32_t sample_rate, float vad_thold, float freq_thold, bool verbose)
+bool vad_simple(float *pcmf32, size_t pcm32f_size, uint32_t sample_rate, int last_ms,
+		float vad_thold, float freq_thold, bool verbose)
 {
-	const uint64_t n_samples = pcm32f_size;
+	const int n_samples = (int)pcm32f_size;
+	const int n_samples_last = (sample_rate * last_ms) / 1000;
 
-	if (freq_thold > 0.0f) {
-		high_pass_filter(pcmf32, pcm32f_size, freq_thold, sample_rate);
-	}
-
-	float energy_all = 0.0f;
-
-	for (uint64_t i = 0; i < n_samples; i++) {
-		energy_all += fabsf(pcmf32[i]);
-	}
-
-	energy_all /= (float)n_samples;
-
-	if (verbose) {
-		obs_log(LOG_INFO, "%s: energy_all: %f, vad_thold: %f, freq_thold: %f", __func__,
-			energy_all, vad_thold, freq_thold);
-	}
-
-	if (energy_all < vad_thold) {
+	if (n_samples_last >= n_samples) {
+		obs_log(LOG_INFO, "not enough samples");
 		return false;
 	}
 
+	if (freq_thold > 0.0f) {
+		high_pass_filter(pcmf32, n_samples, freq_thold, sample_rate);
+	}
+
+	float energy_all = 0.0f;
+	float energy_last = 0.0f;
+
+	for (int i = 0; i < n_samples; i++) {
+		energy_all += fabsf(pcmf32[i]);
+
+		if (i >= n_samples - n_samples_last) {
+			energy_last += fabsf(pcmf32[i]);
+		}
+	}
+
+	energy_all /= n_samples;
+	energy_last /= n_samples_last;
+
+	if (verbose) {
+		fprintf(stderr,
+			"%s: energy_all: %f, energy_last: %f, vad_thold: %f, freq_thold: %f\n",
+			__func__, energy_all, energy_last, vad_thold,
+			freq_thold);
+	}
+	if (energy_last > vad_thold * energy_all) {
+		return false;
+	}
 	return true;
 }
 
@@ -120,9 +134,19 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 
 		float sentence_p = 0.0f;
 		const int n_tokens = whisper_full_n_tokens(wf->whisper_context, n_segment);
+		std::vector<whisper_token_data> tokens(n_tokens);
+
 		for (int j = 0; j < n_tokens; ++j) {
-			const char *tokenText = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
-			obs_log(LOG_INFO, "%s", std::string(tokenText));
+			tokens[j] = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
+		}
+		for (int j = 0; j < n_tokens; ++j) {
+			const auto &token = tokens[j];
+			if (tokens[j].id >= whisper_token_eot(wf->whisper_context)) {
+				continue;
+			}
+			const char* txt  = whisper_token_to_str(wf->whisper_context, token.id);
+			//const char* txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
+			fout << (txt) << "\n";
 			sentence_p += whisper_full_get_token_p(wf->whisper_context, n_segment, j);
 		}
 		sentence_p /= (float)n_tokens;
@@ -133,6 +157,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		// trim whitespace (use lambda)
 		text_lower.erase(std::find_if(text_lower.rbegin(), text_lower.rend(),[](unsigned char ch) { return !std::isspace(ch); }).base(),text_lower.end());
 
+		//obs_log(LOG_INFO, "wisper segment: %d", whisper_full_n_segments(wf->whisper_context));
 		obs_log(LOG_INFO, "[%s --> %s] (%.3f) %s", to_timestamp(t0).c_str(),
 				to_timestamp(t1).c_str(), sentence_p, text_lower.c_str());
 
@@ -219,7 +244,7 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 	bool skipped_inference = false;
 
 	if (wf->vad_enabled) {
-		skipped_inference = !::vad_simple(output[0], out_frames, WHISPER_SAMPLE_RATE, VAD_THOLD, FREQ_THOLD, false);
+		skipped_inference = !::vad_simple(output[0], out_frames, WHISPER_SAMPLE_RATE, 1000, VAD_THOLD, FREQ_THOLD, false);
 	}
 
 	if (!skipped_inference) {
@@ -256,6 +281,8 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 
 void whisper_loop(void *data)
 {
+	fout.open("C:/Users/dbfrb/Desktop/test.txt");
+
 	if (data == nullptr) {
 		obs_log(LOG_ERROR, "whisper_loop: data is null");
 		return;
@@ -298,5 +325,6 @@ void whisper_loop(void *data)
 		std::unique_lock<std::mutex> lock(*wf->whisper_ctx_mutex);
 		wf->wshiper_thread_cv->wait_for(lock, std::chrono::milliseconds(10));
 	}
+	fout.close();
 	obs_log(LOG_INFO, "exiting whisper thread");
 }

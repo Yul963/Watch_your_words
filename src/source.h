@@ -1,4 +1,4 @@
-#include <obs-module.h>
+﻿#include <obs-module.h>
 
 #ifdef __cplusplus
 extern "C" {

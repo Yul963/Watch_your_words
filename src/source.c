@@ -1,4 +1,4 @@
-#include "source.h"
+﻿#include "source.h"
 
 struct obs_source_info watch_your_words_source = {
 	.id = "WatchYourWord_source",
