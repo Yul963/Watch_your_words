@@ -6,7 +6,7 @@ project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
-option(WITH_CUDA "Build with CUDA support. (Windows, CUDA toolkit required)" ON)
+option(WITH_CUDA "Build with CUDA support. (Windows, CUDA toolkit required)" OFF)
 
 include(compilerconfig)
 include(defaults)
@@ -35,9 +35,25 @@ if(ENABLE_QT)
                AUTORCC ON)
 endif()
 
+set(USE_SYSTEM_CURL
+    OFF
+    CACHE STRING "Use system cURL")
+
+if(USE_SYSTEM_CURL)
+  find_package(CURL REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE "${CURL_LIBRARIES}")
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC "${CURL_INCLUDE_DIRS}")
+else()
+  include(cmake/BuildMyCurl.cmake)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE libcurl)
+endif()
+
 include(cmake/BuildWhispercpp.cmake)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Whispercpp)
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp)
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE src/plugin-main.c src/source.cpp src/source.c
+          src/model-utils/model-downloader.cpp src/model-utils/model-downloader-ui.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

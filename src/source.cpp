@@ -4,6 +4,7 @@
 
 #include "whisper-processing.h"
 #include "whisper-language.h"
+#include "model-utils/model-downloader.h"
 
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832795
@@ -491,34 +492,25 @@ void wyw_source_update(void *data, obs_data_t *s)
 		shutdown_whisper_thread(wf);
 		wf->whisper_model_path = bstrdup(new_model_path.c_str());
 
-		obs_log(LOG_INFO, "Checking if model %s exists in data...", wf->whisper_model_path);
-		char *model_config_path_str = obs_module_get_config_path(obs_current_module(), wf->whisper_model_path);
-		std::string model_config_path(model_config_path_str);
-		bfree(model_config_path_str);
-		obs_log(LOG_INFO, "Model path in config: %s", model_config_path.c_str());
+		std::string model_file_found =
+			find_model_file(wf->whisper_model_path);
 
-		if (std::filesystem::exists(model_config_path)) {
-			obs_log(LOG_INFO, "Model exists in config folder: %s", model_config_path.c_str());
-		}
-
-		if (model_config_path == "") {
+		if (model_file_found == "") {
 			obs_log(LOG_ERROR, "Whisper model does not exist");
-			/* download_model_with_ui_dialog(
+			download_model_with_ui_dialog(
 				wf->whisper_model_path,
-				[wf](int download_status,
-					    const std::string &path) {
+				[wf](int download_status, const std::string &path) {
 					if (download_status == 0) {
 						obs_log(LOG_INFO,
 							"Model download complete");
-						start_whisper_thread_with_path(
-							gf, path);
+						start_whisper_thread_with_path(wf, path);
 					} else {
 						obs_log(LOG_ERROR,
 							"Model download failed");
 					}
-				});*/
+				});
 		} else {
-			start_whisper_thread_with_path(wf, model_config_path);
+			start_whisper_thread_with_path(wf, model_file_found);
 		}
 	} else {
 		obs_log(LOG_INFO, "model path did not change: %s == %s",
@@ -712,6 +704,21 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_properties_t *ppts = obs_properties_create();
 
 	obs_properties_add_editable_list(ppts,"ban list",MT_("ban list"),OBS_EDITABLE_LIST_TYPE_STRINGS,NULL, NULL);
+
+	obs_property_t *ban_list_property = obs_properties_get(ppts, "ban list");
+
+	obs_property_set_modified_callback2(
+		ban_list_property,
+		[](void *data, obs_properties_t *props,
+		   obs_property_t *property, obs_data_t *settings) {
+			obs_log(LOG_INFO, "ban_list modified");
+			UNUSED_PARAMETER(property);
+			UNUSED_PARAMETER(props);
+			struct wyw_source_data *wf =
+				static_cast<struct wyw_source_data *>(data);
+			return true;
+		},
+		wf);
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
