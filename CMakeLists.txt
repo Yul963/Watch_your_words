@@ -6,7 +6,7 @@ project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
-option(LOCALVOCAL_WITH_CUDA "Build with CUDA support. (Windows, CUDA toolkit required)" OFF)
+option(LOCALVOCAL_WITH_CUDA "Build with CUDA support. (Windows, CUDA toolkit required)" ON)
 
 include(compilerconfig)
 include(defaults)
@@ -53,7 +53,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Whispercpp)
 
 target_sources(
   ${CMAKE_PROJECT_NAME}
-  PRIVATE src/plugin-main.c src/source.cpp src/source.c
+  PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp
           src/model-utils/model-downloader.cpp src/model-utils/model-downloader-ui.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
