@@ -787,20 +787,13 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_properties_t *whisper_params_group = obs_properties_create();
 	obs_properties_add_group(ppts, "whisper_params_group", MT_("whisper_parameters"), OBS_GROUP_NORMAL, whisper_params_group);
 
-	obs_property_t *whisper_language_select_list = obs_properties_add_list(whisper_params_group, "whisper_language_select",
+	obs_property_t *whisper_language_select_list = obs_properties_add_list(
+		whisper_params_group, "whisper_language_select",
 		MT_("language"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 
-	std::map<std::string, std::string> whisper_available_lang_flip;
-	for (auto const &pair : whisper_available_lang) {
-		whisper_available_lang_flip[pair.second] = pair.first;
-	}
+	obs_property_list_add_string(whisper_language_select_list, "Korean", "ko");
 
-	for (auto const &pair : whisper_available_lang_flip) {
-		std::string language_name = pair.first;
-		language_name[0] = (char)toupper(language_name[0]);
-
-		obs_property_list_add_string(whisper_language_select_list, language_name.c_str(), pair.second.c_str());
-	}
+	obs_property_set_visible(whisper_language_select_list, false);
 
 	obs_property_t *whisper_sampling_method_list = obs_properties_add_list(whisper_params_group, "whisper_sampling_method",
 		MT_("whisper_sampling_method"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
