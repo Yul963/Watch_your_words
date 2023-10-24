@@ -1,5 +1,5 @@
 ﻿/*
-Plugin Name
+Watch Your Words
 Copyright (C) <Year> <Developer> <Email Address>
 
 This program is free software; you can redistribute it and/or modify
@@ -20,6 +20,8 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 
 const char *PLUGIN_NAME = "@CMAKE_PROJECT_NAME@";
 const char *PLUGIN_VERSION = "@CMAKE_PROJECT_VERSION@";
+
+extern void blogva(int log_level, const char *format, va_list args);
 
 void obs_log(int log_level, const char *format, ...)
 {
