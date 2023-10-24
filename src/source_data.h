@@ -65,12 +65,14 @@ struct wyw_source_data {
 	size_t step_size_msec;
 	uint64_t start_timestamp_ms;
 	size_t sentence_number;
+
 	float *copy_buffers[MAX_AUDIO_CHANNELS];
 	struct circlebuf info_buffer;
 	struct circlebuf input_buffers[MAX_AUDIO_CHANNELS];
 	audio_resampler_t *resampler = nullptr;
 	char *whisper_model_path = nullptr;
 	struct whisper_context *whisper_context = nullptr;
+
 	whisper_full_params whisper_params;
 	float filler_p_threshold;
 	bool do_silence;
@@ -81,9 +83,11 @@ struct wyw_source_data {
 	bool save_only_while_recording = false;
 	bool process_while_muted = false;
 	bool rename_file_to_match_recording = false;
+
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
 	std::mutex *text_source_mutex = nullptr;
+
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
 	std::string output_file_path = "";
 	std::string whisper_model_file_currently_loaded = "";

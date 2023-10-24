@@ -1,8 +1,8 @@
-include(ExternalProject)
+﻿include(ExternalProject)
 
 set(CMAKE_OSX_ARCHITECTURES_ "arm64$<SEMICOLON>x86_64")
 
-set(WHISPERCPP_VERSION 1.4.0)
+set(WHISPERCPP_VERSION 1.4.2)
 
 if(${CMAKE_BUILD_TYPE} STREQUAL Release OR ${CMAKE_BUILD_TYPE} STREQUAL RelWithDebInfo)
   set(Whispercpp_BUILD_TYPE Release)
@@ -18,7 +18,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
-    if(LOCALVOCAL_WITH_CUDA)
+    if(WITH_CUDA)
         #set(CUDA_TOOLKIT_ROOT_DIR "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.2")
         #set(WHISPER_ADDITIONAL_ENV "CUDAToolkit_ROOT=${CUDA_TOOLKIT_ROOT_DIR}")
         set(WHISPER_ADDITIONAL_CMAKE_ARGS -DWHISPER_CUBLAS=ON) #-DCMAKE_GENERATOR_TOOLSET=cuda=${CUDA_TOOLKIT_ROOT_DIR})
@@ -27,9 +27,9 @@ if(WIN32)
     ExternalProject_Add(
       Whispercpp_Build
       DOWNLOAD_EXTRACT_TIMESTAMP true
-      #URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
-      GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
-      GIT_TAG 7b374c9ac9b9861bb737eec060e4dfa29d229259
+      URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
+      #GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+      #GIT_TAG 7b374c9ac9b9861bb737eec060e4dfa29d229259
       BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config ${Whispercpp_BUILD_TYPE}
       BUILD_BYPRODUCTS
       <INSTALL_DIR>/lib/static/${CMAKE_STATIC_LIBRARY_PREFIX}whisper${CMAKE_STATIC_LIBRARY_SUFFIX}
