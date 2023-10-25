@@ -9,6 +9,8 @@
 #include <deque>
 #include <queue>
 #include <string>
+#include <iostream>
+#include <cctype>
 
 #include <util/circlebuf.h>
 #include <util/darray.h>

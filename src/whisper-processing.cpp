@@ -1,21 +1,13 @@
 ﻿#include <whisper.h>
 
-#include <obs-module.h>
-#include <obs-frontend-api.h>
+
 #include "plugin-support.h"
 #include "source_data.h"
 #include "whisper-processing.h"
-#include <Windows.h>
-#include <iostream>
-#include <locale>
-#include <codecvt>
 
-#include <algorithm>
-#include <cctype>
-#include <codecvt>
 #define VAD_THOLD 0.6f
 #define FREQ_THOLD 100.0f
-//std::ofstream fout;
+std::ofstream fout;
 
 // split UTF-8 string into valid and invalid parts
 // eg. (a = "�123456", result = {"�", "123456", ""})
@@ -131,7 +123,7 @@ char *UTF8ToANSI(const char *pszCode)
 	return pszAnsi;
 }*/
 
-std::string to_timestamp(int64_t t)//수정
+std::string to_timestamp(int64_t t)
 {
 	int64_t sec = t / 1000;
 	int64_t msec = t - sec * 1000;
@@ -273,31 +265,26 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			//const char* txt  = whisper_token_to_str(wf->whisper_context, token.id);
 			// if token is valid UTF-8 print it directly
 			if (valid_UTF8(txt)) {
-				//fout << txt << "\n";
+				fout << txt << "\n";
 			} else {
-				// split token into valid and invalid parts
 				auto result = split_UTF8(txt);
-				// if first part (invalid part) is non-empty, add it to buf1
 				if (!result[0].empty()) {
 					buf1.buffer += result[0];
 					buf1.p_sum += p;
 					buf1.token_c++;
 				}
-				// if third part (invalid part) is non-empty, add it to buf2
 				if (!result[2].empty()) {
 					buf2.buffer += result[2];
 					buf2.p_sum += p;
 					buf2.token_c++;
 				}
-				// if buf1 is valid UTF-8 then print it
 				if (valid_UTF8(buf1.buffer)) {
-					//fout << buf1.buffer.c_str() << "\n";
+					fout << buf1.buffer.c_str() << "\n";
 					buf1 = buf2;
 					buf2.clear();
 				}
-				// if second part (valid part) is non-empty, print it
 				if (!result[1].empty()) {
-					//fout << result[1].c_str() << "\n";
+					fout << result[1].c_str() << "\n";
 				}
 			}
 			sentence_p += whisper_full_get_token_p(wf->whisper_context, n_segment, j);
@@ -434,7 +421,7 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 
 void whisper_loop(void *data)
 {
-	//fout.open("C:/Users/dbfrb/Desktop/test.txt",std::ios::out | std::ios::binary);
+	fout.open("C:/Users/dbfrb/Desktop/test.txt",std::ios::out | std::ios::binary);
 
 	if (data == nullptr) {
 		obs_log(LOG_ERROR, "whisper_loop: data is null");
@@ -478,6 +465,6 @@ void whisper_loop(void *data)
 		std::unique_lock<std::mutex> lock(*wf->whisper_ctx_mutex);
 		wf->wshiper_thread_cv->wait_for(lock, std::chrono::milliseconds(10));
 	}
-	//fout.close();
+	fout.close();
 	obs_log(LOG_INFO, "exiting whisper thread");
 }
