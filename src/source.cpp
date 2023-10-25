@@ -48,6 +48,11 @@ inline uint64_t now_ms()
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+inline uint64_t now_ns()
+{
+	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출력 추가
 {
 	auto source_id = obs_source_get_id(source);
@@ -69,9 +74,50 @@ bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출�
 }
 
 double sin_val = 0.0;
+double rate = 1000.0 / 48000.0;
+ void edit_audio_buffer(void *data) {
+	struct wyw_source_data *wf = (struct wyw_source_data *)data;
+	const size_t channels = wf->channels;
+	pair_audio pair = wf->audio_buf.front();
+	if (!wf->timestamp_queue.empty()) {
+		struct edit_timestamp temp_t = wf->timestamp_queue.front();
+		wf->timestamp_queue.pop();
+		std::deque<struct pair_audio> temp_q = wf->audio_buf;
+		for (int i = 0; i < temp_q.size(); i++) {
+			if ((temp_q[i].timestamp > temp_t.start) &&
+			    (temp_q[i].timestamp < temp_t.end)) {
+				for (size_t c = 0; c < channels; c++) {
+					if (pair.data[c]) {
+						for (size_t j = 0;
+						     j < wf->frames; i++) {
+							sin_val += rate * M_PI *
+								   2.0;
+							if (sin_val >
+							    M_PI * 2.0)
+								sin_val -=
+									M_PI *
+									2.0;
+							double wave =
+								sin(sin_val);
+							temp_q[i].data[c][j] =
+								(float)(wave /
+									100.0);
+						}
+					}
+				}
+			}
+			if (temp_q[i].timestamp > temp_t.end)
+				break;
+		}
+	}
+	/* temp = adata[c][i];
+	adata[c][i] = adata[c][audio->frames - i - 1];
+	adata[c][audio->frames-i] = temp;*/
+ }
+
+
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
-	double rate = 1000.0 / 48000.0;
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	const size_t channels = wf->channels;
 	float **fdata = (float **)audio->data;
@@ -107,41 +153,6 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			delete temp.data;
 		}
 	}
-
-	if (!wf->edit_timestamp.empty()) {
-		struct timestamp temp_t = wf->edit_timestamp.front();
-		wf->edit_timestamp.pop();
-		std::deque<struct pair_audio> temp_q = wf->audio_buf;
-		for (int i = 0; i < temp_q.size(); i++) {
-			if ((temp_q[i].timestamp > temp_t.start) &&
-			    (temp_q[i].timestamp < temp_t.end)) {
-				for (size_t c = 0; c < channels; c++) {
-					if (audio->data[c]) {
-						for (size_t j = 0;
-						     j < audio->frames; i++) {
-							sin_val += rate * M_PI *
-								   2.0;
-							if (sin_val >
-							    M_PI * 2.0)
-								sin_val -=
-									M_PI *
-									2.0;
-							double wave =
-								sin(sin_val);
-							temp_q[i].data[c][j] =
-								(float)(wave /
-									100.0);
-						}
-					}
-				}
-			}
-			if (temp_q[i].timestamp > temp_t.end)
-				break;
-		}
-	}
-	/* temp = adata[c][i];
-	adata[c][i] = adata[c][audio->frames - i - 1];
-	adata[c][audio->frames-i] = temp;*/
 
 	if (!wf->active) {
 		return audio;
@@ -262,6 +273,13 @@ void acquire_weak_text_source_ref(struct wyw_source_data *wf)
 	}
 }
 
+bool checkBanList(std::string str)
+{
+	return false;
+}
+
+void setTimestamp() {}
+
 void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &result)
 {
 #ifdef _WIN32
@@ -274,6 +292,10 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
+	if (checkBanList(str_copy)) {
+		wf->start_timestamp_ms;
+	}
+
 	if (wf->caption_to_stream) {
 		obs_output_t *streaming_output = obs_frontend_get_streaming_output();
 		if (streaming_output) {
@@ -642,14 +664,6 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 				}}},wf);
 	//obs_log(LOG_INFO, "watch-your-words source created.");
 	return wf;
-}
-
-void checkBanList() {
-	
-}
-
-void setTimestamp() {
-
 }
 
 struct obs_source_frame *wyw_source_filter_video(void *data, struct obs_source_frame *frame)

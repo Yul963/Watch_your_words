@@ -247,8 +247,12 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 	} else {
 		const int n_segment = 0;
 		const char *text = whisper_full_get_segment_text(wf->whisper_context, n_segment);
-		const int64_t t0 = offset_ms;
+		 
+		const int64_t t0 = offset_ms;//whisper_full_get_segment_t0(wf->whisper_context, n_segment); 
+		//offset_ms;
 		const int64_t t1 = offset_ms + duration_ms;
+		//whisper_full_get_segment_t1(wf->whisper_context, n_segment); 
+		//offset_ms + duration_ms;
 
 		float sentence_p = 0.0f;
 		const int n_tokens = whisper_full_n_tokens(wf->whisper_context, n_segment);
@@ -305,7 +309,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		std::transform(text_lower.begin(), text_lower.end(), text_lower.begin(), ::tolower);
 		// trim whitespace (use lambda)
 		text_lower.erase(std::find_if(text_lower.rbegin(), text_lower.rend(),[](unsigned char ch) { return !std::isspace(ch); }).base(),text_lower.end());
-
+		
 		//obs_log(LOG_INFO, "wisper segment: %d", whisper_full_n_segments(wf->whisper_context));
 		obs_log(LOG_INFO, "[%s --> %s] (%.3f) %s", to_timestamp(t0).c_str(),
 				to_timestamp(t1).c_str(), sentence_p, text_lower.c_str());
