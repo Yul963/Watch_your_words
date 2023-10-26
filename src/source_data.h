@@ -33,8 +33,12 @@
 #define MT_ obs_module_text
 
 struct edit_timestamp {
+	std::string text;
 	uint64_t start;
 	uint64_t end;
+	edit_timestamp(std::string text, uint64_t start, uint64_t end)
+		: text(std::move(text)), start(start), end(end) 
+	{}
 };
 
 enum DetectionResult {
@@ -103,11 +107,13 @@ struct wyw_source_data {
 	std::deque<struct pair_audio> audio_buf;
 	//std::queue<struct obs_source_frame> video_buf;
 	std::queue<struct edit_timestamp> timestamp_queue;
+	std::vector<struct edit_timestamp> token_result;
 	std::mutex *audio_buf_mutex = nullptr;
 	std::mutex *timestamp_queue_mutex = nullptr;
 	uint64_t start_timestamp;
+	uint64_t current_timestamp;
 	//struct obs_source_frame start_video_data;
-	std::vector<std::string> words;
+	std::vector<std::string> banlist;
 };
 
 struct watch_your_words_audio_info {
