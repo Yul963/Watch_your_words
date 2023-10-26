@@ -114,6 +114,26 @@ double rate = 1000.0 / 48000.0;
 	adata[c][audio->frames-i] = temp;*/
  }
 
+ void edit_loop(void *data)
+ {
+	if (data == nullptr) {
+		obs_log(LOG_ERROR, " void edit_loop(void *data): data is null");
+		return;
+	}
+	struct wyw_source_data *wf = static_cast<struct wyw_source_data *>(data);
+	obs_log(LOG_INFO, "starting edit thread");
+	while (true) {
+		{
+			std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+			if (wf->whisper_context == nullptr) {
+				obs_log(LOG_WARNING,"Whisper context is null, exiting thread");
+				break;
+			}
+		}
+
+
+	}
+ }
 
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
@@ -204,6 +224,10 @@ void wyw_source_destroy(void *data)
 		wf->whisper_thread.join();
 	}
 
+	if (wf->edit_thread.joinable()) {
+		wf->edit_thread.join();
+	}
+
 	if (wf->text_source_name) {
 		bfree(wf->text_source_name);
 		wf->text_source_name = nullptr;
@@ -232,6 +256,9 @@ void wyw_source_destroy(void *data)
 	delete wf->whisper_ctx_mutex;
 	delete wf->wshiper_thread_cv;
 	delete wf->text_source_mutex;
+
+	delete wf->audio_buf_mutex;
+	delete wf->timestamp_queue_mutex;
 
 	for (; !wf->audio_buf.empty();) {
 		//obs_log(LOG_INFO, "audio_buf emptying.");
@@ -272,13 +299,6 @@ void acquire_weak_text_source_ref(struct wyw_source_data *wf)
 	}
 }
 
-bool checkBanList(std::string str)
-{
-	return false;
-}
-
-void setTimestamp() {}
-
 void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &result)
 {
 #ifdef _WIN32
@@ -291,8 +311,14 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
-	if (checkBanList(str_copy)) {
-		wf->start_timestamp_ms;
+	for (std::string &word : wf->banlist) {
+		for (edit_timestamp &temp : wf->token_result) { 
+			if (temp.text.find(word) != std::string::npos) {
+				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
+				wf->timestamp_queue.push(temp);
+				//obs_log(LOG_INFO,"edit timestamp added t0: %llu, t1: %llu",temp.start, temp.end);
+			}
+		}
 	}
 
 	if (wf->caption_to_stream) {
@@ -423,11 +449,11 @@ void wyw_source_update(void *data, obs_data_t *s)
 	//obs_log(LOG_INFO, "watch-your-words source updating.");
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	obs_data_array_t *data_array = obs_data_get_array(s, "ban list");
-	wf->words.clear();
+	wf->banlist.clear();
 	for (int i = 0; i < obs_data_array_count(data_array); i++) {
 		obs_data_t *string = obs_data_array_item(data_array, i);
 		const char *a = obs_data_get_string(string, "value");
-		wf->words.push_back(std::string(a));
+		wf->banlist.push_back(std::string(a));
 	}
 	wf->channels = audio_output_get_channels(obs_get_audio());
 
@@ -565,7 +591,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->whisper_params.split_on_word =true; //obs_data_get_bool(s, "split_on_word");
 	wf->whisper_params.max_tokens = (int)obs_data_get_int(s, "max_tokens");
 	wf->whisper_params.speed_up = false;//obs_data_get_bool(s, "speed_up");
-	wf->whisper_params.suppress_blank = false;  //obs_data_get_bool(s, "suppress_blank");
+	wf->whisper_params.suppress_blank = true;  //obs_data_get_bool(s, "suppress_blank");
 	wf->whisper_params.suppress_non_speech_tokens = true; //obs_data_get_bool(s, "suppress_non_speech_tokens");
 	wf->whisper_params.temperature = (float)obs_data_get_double(s, "temperature");
 	wf->whisper_params.max_initial_ts = (float)obs_data_get_double(s, "max_initial_ts");
@@ -622,6 +648,11 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	wf->whisper_ctx_mutex = new std::mutex();
 	wf->wshiper_thread_cv = new std::condition_variable();
 	wf->text_source_mutex = new std::mutex();
+
+	std::thread new_edit_thread(edit_loop, wf);
+	wf->edit_thread.swap(new_edit_thread);
+	std::mutex *audio_buf_mutex = new std::mutex();
+	std::mutex *timestamp_queue_mutex = new std::mutex();
 	obs_log(LOG_INFO, "watch_your_words: clear text source data");
 	wf->text_source = nullptr;
 	const char *subtitle_sources = obs_data_get_string(settings, "subtitle_sources");
