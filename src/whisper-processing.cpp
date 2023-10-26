@@ -1,21 +1,13 @@
 ﻿#include <whisper.h>
 
-#include <obs-module.h>
-#include <obs-frontend-api.h>
+
 #include "plugin-support.h"
 #include "source_data.h"
 #include "whisper-processing.h"
-#include <Windows.h>
-#include <iostream>
-#include <locale>
-#include <codecvt>
 
-#include <algorithm>
-#include <cctype>
-#include <codecvt>
 #define VAD_THOLD 0.6f
 #define FREQ_THOLD 100.0f
-//std::ofstream fout;
+std::ofstream fout;
 
 // split UTF-8 string into valid and invalid parts
 // eg. (a = "�123456", result = {"�", "123456", ""})
@@ -111,27 +103,8 @@ struct UTF8_buf {
 		token_c = 0;
 	}
 };
-/*
-char *UTF8ToANSI(const char *pszCode)
-{
-	BSTR bstrWide;
-	char *pszAnsi;
-	int nLength;
-	// UTF-8로부터 CP_UTF8로 변환
-	nLength = MultiByteToWideChar(CP_UTF8, 0, pszCode, -1, NULL, 0);
-	bstrWide = SysAllocStringLen(NULL, nLength);
-	MultiByteToWideChar(CP_UTF8, 0, pszCode, -1, bstrWide, nLength);
 
-	// CP_UTF8에서 CP_ACP로 변환
-	nLength = WideCharToMultiByte(CP_ACP, 0, bstrWide, -1, NULL, 0, NULL,NULL);
-	pszAnsi = new char[nLength];
-	WideCharToMultiByte(CP_ACP, 0, bstrWide, -1, pszAnsi, nLength, NULL,NULL);
-	SysFreeString(bstrWide);
-
-	return pszAnsi;
-}*/
-
-std::string to_timestamp(int64_t t)//수정
+std::string to_timestamp(int64_t t)
 {
 	int64_t sec = t / 1000;
 	int64_t msec = t - sec * 1000;
@@ -247,56 +220,81 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 	} else {
 		const int n_segment = 0;
 		const char *text = whisper_full_get_segment_text(wf->whisper_context, n_segment);
-		const int64_t t0 = offset_ms;
+		 
+		const int64_t t0 = offset_ms;//whisper_full_get_segment_t0(wf->whisper_context, n_segment); 
+		//offset_ms;
 		const int64_t t1 = offset_ms + duration_ms;
+		//whisper_full_get_segment_t1(wf->whisper_context, n_segment); 
+		//offset_ms + duration_ms;
 
 		float sentence_p = 0.0f;
 		const int n_tokens = whisper_full_n_tokens(wf->whisper_context, n_segment);
-		std::vector<whisper_token_data> tokens(n_tokens);
+		//std::vector<whisper_token_data> tokens(n_tokens);
 		struct UTF8_buf buf1;
 		struct UTF8_buf buf2;
+		std::string word1, word2;
+		wf->token_result.clear();
 
+		//for (int j = 0; j < n_tokens; ++j) {
+		//	tokens[j] = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
+		//}
 		for (int j = 0; j < n_tokens; ++j) {
-			tokens[j] = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
-		}
-		for (int j = 0; j < n_tokens; ++j) {
-			const auto &token = tokens[j];
-			if (tokens[j].id >= whisper_token_eot(wf->whisper_context)) {
-				continue;
+			//const auto &token = tokens[j];
+			const auto token = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
+			//const float p = whisper_full_get_token_p(wf->whisper_context, n_segment, j);
+			const float p = token.p;
+			sentence_p += p;
+			//bool eot = tokens[j].id >=whisper_token_eot(wf->whisper_context);
+			bool eot = token.id >= whisper_token_eot(wf->whisper_context);
+			//whisper_full_get_token_id(wf->whisper_context, n_segment, j) >=
+				   
+			if (!eot) {
+				const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
+				if (valid_UTF8(txt)) {
+					word1 += txt;
+					//fout << txt;
+				} else {
+					auto result = split_UTF8(txt);
+					if (!result[0].empty()) {
+						buf1.buffer += result[0];
+						buf1.p_sum += p;
+						buf1.token_c++;
+					}
+					if (!result[2].empty()) {
+						buf2.buffer += result[2];
+						buf2.p_sum += p;
+						buf2.token_c++;
+					}
+					if (valid_UTF8(buf1.buffer)) {
+						//fout << buf1.buffer.c_str();
+						word1 += buf1.buffer;
+						buf1 = buf2;
+						buf2.clear();
+					}
+					if (!result[1].empty()) {
+						//fout << result[1].c_str();
+						word1 += result[1];
+					}
+				}
+				if (word1[0] == ' ' && !word2.empty()) {
+					word2.erase(0, 1);
+					//fout << word2 << "t0: " << (t0 + token.t0) * 1000000 << "t1: "<< (t1 + token.t1) * 1000000<< "\n";
+					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) * 1000000);//ms to ns
+					//word2.clear();
+				}
+				word2 += word1;
+				word1.clear();
 			}
-			const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
-			const float p = whisper_full_get_token_p(wf->whisper_context, n_segment, j);
-			//const char* txt  = whisper_token_to_str(wf->whisper_context, token.id);
-			// if token is valid UTF-8 print it directly
-			if (valid_UTF8(txt)) {
-				//fout << txt << "\n";
-			} else {
-				// split token into valid and invalid parts
-				auto result = split_UTF8(txt);
-				// if first part (invalid part) is non-empty, add it to buf1
-				if (!result[0].empty()) {
-					buf1.buffer += result[0];
-					buf1.p_sum += p;
-					buf1.token_c++;
-				}
-				// if third part (invalid part) is non-empty, add it to buf2
-				if (!result[2].empty()) {
-					buf2.buffer += result[2];
-					buf2.p_sum += p;
-					buf2.token_c++;
-				}
-				// if buf1 is valid UTF-8 then print it
-				if (valid_UTF8(buf1.buffer)) {
-					//fout << buf1.buffer.c_str() << "\n";
-					buf1 = buf2;
-					buf2.clear();
-				}
-				// if second part (valid part) is non-empty, print it
-				if (!result[1].empty()) {
-					//fout << result[1].c_str() << "\n";
+			
+			if ((n_tokens - 1) == j) {
+				if (!eot)
+					word2 += word1;
+				if (!word2.empty()) {
+					word2.erase(0, 1);
+					//fout << word2 << "t0: "<< (t0 + token.t0) * 1000000<< "t1: "<< (t1 + token.t1) * 1000000<< "\n";
+					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) *1000000);
 				}
 			}
-			sentence_p += whisper_full_get_token_p(wf->whisper_context, n_segment, j);
 		}
 		sentence_p /= (float)n_tokens;
 
@@ -305,7 +303,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		std::transform(text_lower.begin(), text_lower.end(), text_lower.begin(), ::tolower);
 		// trim whitespace (use lambda)
 		text_lower.erase(std::find_if(text_lower.rbegin(), text_lower.rend(),[](unsigned char ch) { return !std::isspace(ch); }).base(),text_lower.end());
-
+		
 		//obs_log(LOG_INFO, "wisper segment: %d", whisper_full_n_segments(wf->whisper_context));
 		obs_log(LOG_INFO, "[%s --> %s] (%.3f) %s", to_timestamp(t0).c_str(),
 				to_timestamp(t1).c_str(), sentence_p, text_lower.c_str());

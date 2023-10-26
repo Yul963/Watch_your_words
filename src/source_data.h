@@ -9,6 +9,8 @@
 #include <deque>
 #include <queue>
 #include <string>
+#include <iostream>
+#include <cctype>
 
 #include <util/circlebuf.h>
 #include <util/darray.h>
@@ -30,9 +32,13 @@
 
 #define MT_ obs_module_text
 
-struct timestamp {
+struct edit_timestamp {
+	std::string text;
 	uint64_t start;
 	uint64_t end;
+	edit_timestamp(std::string text, uint64_t start, uint64_t end)
+		: text(std::move(text)), start(start), end(end) 
+	{}
 };
 
 enum DetectionResult {
@@ -56,9 +62,9 @@ struct pair_audio {
 struct wyw_source_data {
 	obs_source_t *context;
 	size_t channels;
+	size_t frames;
 
 	uint32_t sample_rate;
-	size_t frames;
 	size_t overlap_frames;
 	size_t overlap_ms;
 	size_t last_num_frames;
@@ -91,17 +97,23 @@ struct wyw_source_data {
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
 	std::string output_file_path = "";
 	std::string whisper_model_file_currently_loaded = "";
+
 	std::thread whisper_thread;
 	std::mutex *whisper_buf_mutex = nullptr;
 	std::mutex *whisper_ctx_mutex = nullptr;
 	std::condition_variable *wshiper_thread_cv = nullptr;
 
+	std::thread edit_thread;
 	std::deque<struct pair_audio> audio_buf;
 	//std::queue<struct obs_source_frame> video_buf;
-	std::queue<struct timestamp> edit_timestamp;
+	std::queue<struct edit_timestamp> timestamp_queue;
+	std::vector<struct edit_timestamp> token_result;
+	std::mutex *audio_buf_mutex = nullptr;
+	std::mutex *timestamp_queue_mutex = nullptr;
 	uint64_t start_timestamp;
+	uint64_t current_timestamp;
 	//struct obs_source_frame start_video_data;
-	std::vector<std::string> words;
+	std::vector<std::string> banlist;
 };
 
 struct watch_your_words_audio_info {

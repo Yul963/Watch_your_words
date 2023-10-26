@@ -3,7 +3,6 @@
 #include <plugin-support.h>
 
 #include "whisper-processing.h"
-#include "whisper-language.h"
 #include "model-utils/model-downloader.h"
 
 #ifndef M_PI
@@ -48,6 +47,11 @@ inline uint64_t now_ms()
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
+inline uint64_t now_ns()
+{
+	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출력 추가
 {
 	auto source_id = obs_source_get_id(source);
@@ -69,9 +73,70 @@ bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출�
 }
 
 double sin_val = 0.0;
+double rate = 1000.0 / 48000.0;
+ void edit_audio_buffer(void *data) {
+	struct wyw_source_data *wf = (struct wyw_source_data *)data;
+	const size_t channels = wf->channels;
+	pair_audio pair = wf->audio_buf.front();
+	if (!wf->timestamp_queue.empty()) {
+		struct edit_timestamp temp_t = wf->timestamp_queue.front();
+		wf->timestamp_queue.pop();
+		std::deque<struct pair_audio> temp_q = wf->audio_buf;
+		for (int i = 0; i < temp_q.size(); i++) {
+			if ((temp_q[i].timestamp > temp_t.start) &&
+			    (temp_q[i].timestamp < temp_t.end)) {
+				for (size_t c = 0; c < channels; c++) {
+					if (pair.data[c]) {
+						for (size_t j = 0;
+						     j < wf->frames; i++) {
+							sin_val += rate * M_PI *
+								   2.0;
+							if (sin_val >
+							    M_PI * 2.0)
+								sin_val -=
+									M_PI *
+									2.0;
+							double wave =
+								sin(sin_val);
+							temp_q[i].data[c][j] =
+								(float)(wave /
+									100.0);
+						}
+					}
+				}
+			}
+			if (temp_q[i].timestamp > temp_t.end)
+				break;
+		}
+	}
+	/* temp = adata[c][i];
+	adata[c][i] = adata[c][audio->frames - i - 1];
+	adata[c][audio->frames-i] = temp;*/
+ }
+
+ void edit_loop(void *data)
+ {
+	if (data == nullptr) {
+		obs_log(LOG_ERROR, " void edit_loop(void *data): data is null");
+		return;
+	}
+	struct wyw_source_data *wf = static_cast<struct wyw_source_data *>(data);
+	obs_log(LOG_INFO, "starting edit thread");
+	while (true) {
+		{
+			std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+			if (wf->whisper_context == nullptr) {
+				obs_log(LOG_WARNING,"Whisper context is null, exiting thread");
+				break;
+			}
+		}
+
+
+	}
+ }
+
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
-	double rate = 1000.0 / 48000.0;
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	const size_t channels = wf->channels;
 	float **fdata = (float **)audio->data;
@@ -107,41 +172,6 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			delete temp.data;
 		}
 	}
-
-	if (!wf->edit_timestamp.empty()) {
-		struct timestamp temp_t = wf->edit_timestamp.front();
-		wf->edit_timestamp.pop();
-		std::deque<struct pair_audio> temp_q = wf->audio_buf;
-		for (int i = 0; i < temp_q.size(); i++) {
-			if ((temp_q[i].timestamp > temp_t.start) &&
-			    (temp_q[i].timestamp < temp_t.end)) {
-				for (size_t c = 0; c < channels; c++) {
-					if (audio->data[c]) {
-						for (size_t j = 0;
-						     j < audio->frames; i++) {
-							sin_val += rate * M_PI *
-								   2.0;
-							if (sin_val >
-							    M_PI * 2.0)
-								sin_val -=
-									M_PI *
-									2.0;
-							double wave =
-								sin(sin_val);
-							temp_q[i].data[c][j] =
-								(float)(wave /
-									100.0);
-						}
-					}
-				}
-			}
-			if (temp_q[i].timestamp > temp_t.end)
-				break;
-		}
-	}
-	/* temp = adata[c][i];
-	adata[c][i] = adata[c][audio->frames - i - 1];
-	adata[c][audio->frames-i] = temp;*/
 
 	if (!wf->active) {
 		return audio;
@@ -194,6 +224,10 @@ void wyw_source_destroy(void *data)
 		wf->whisper_thread.join();
 	}
 
+	if (wf->edit_thread.joinable()) {
+		wf->edit_thread.join();
+	}
+
 	if (wf->text_source_name) {
 		bfree(wf->text_source_name);
 		wf->text_source_name = nullptr;
@@ -222,6 +256,9 @@ void wyw_source_destroy(void *data)
 	delete wf->whisper_ctx_mutex;
 	delete wf->wshiper_thread_cv;
 	delete wf->text_source_mutex;
+
+	delete wf->audio_buf_mutex;
+	delete wf->timestamp_queue_mutex;
 
 	for (; !wf->audio_buf.empty();) {
 		//obs_log(LOG_INFO, "audio_buf emptying.");
@@ -274,6 +311,16 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
+	for (std::string &word : wf->banlist) {
+		for (edit_timestamp &temp : wf->token_result) { 
+			if (temp.text.find(word) != std::string::npos) {
+				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
+				wf->timestamp_queue.push(temp);
+				//obs_log(LOG_INFO,"edit timestamp added t0: %llu, t1: %llu",temp.start, temp.end);
+			}
+		}
+	}
+
 	if (wf->caption_to_stream) {
 		obs_output_t *streaming_output = obs_frontend_get_streaming_output();
 		if (streaming_output) {
@@ -402,11 +449,11 @@ void wyw_source_update(void *data, obs_data_t *s)
 	//obs_log(LOG_INFO, "watch-your-words source updating.");
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	obs_data_array_t *data_array = obs_data_get_array(s, "ban list");
-	wf->words.clear();
+	wf->banlist.clear();
 	for (int i = 0; i < obs_data_array_count(data_array); i++) {
 		obs_data_t *string = obs_data_array_item(data_array, i);
 		const char *a = obs_data_get_string(string, "value");
-		wf->words.push_back(std::string(a));
+		wf->banlist.push_back(std::string(a));
 	}
 	wf->channels = audio_output_get_channels(obs_get_audio());
 
@@ -526,26 +573,26 @@ void wyw_source_update(void *data, obs_data_t *s)
 
 	wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
 	wf->whisper_params.duration_ms = BUFFER_SIZE_MSEC;
-	wf->whisper_params.language = obs_data_get_string(s, "whisper_language_select");
+	wf->whisper_params.language = "ko";
 	wf->whisper_params.initial_prompt = "인터넷 방송 스트림"; //obs_data_get_string(s, "initial_prompt");
-	wf->whisper_params.n_threads = (int)obs_data_get_int(s, "n_threads");
-	wf->whisper_params.n_max_text_ctx = (int)obs_data_get_int(s, "n_max_text_ctx");
+	wf->whisper_params.n_threads = std::min((int)obs_data_get_int(s, "n_threads"),(int)std::thread::hardware_concurrency());
+	wf->whisper_params.n_max_text_ctx = 16384; //(int)obs_data_get_int(s, "n_max_text_ctx");
 	wf->whisper_params.translate = false; //obs_data_get_bool(s, "translate");
-	wf->whisper_params.no_context = obs_data_get_bool(s, "no_context");
-	wf->whisper_params.single_segment = obs_data_get_bool(s, "single_segment");
-	wf->whisper_params.print_special = obs_data_get_bool(s, "print_special");
-	wf->whisper_params.print_progress = obs_data_get_bool(s, "print_progress");
-	wf->whisper_params.print_realtime = obs_data_get_bool(s, "print_realtime");
-	wf->whisper_params.print_timestamps = obs_data_get_bool(s, "print_timestamps");
-	wf->whisper_params.token_timestamps =true; //obs_data_get_bool(s, "token_timestamps");
+	wf->whisper_params.no_context =true; //obs_data_get_bool(s, "no_context");
+	wf->whisper_params.single_segment =true; //obs_data_get_bool(s, "single_segment");
+	wf->whisper_params.print_special = false;//obs_data_get_bool(s, "print_special");
+	wf->whisper_params.print_progress = false;// obs_data_get_bool(s, "print_progress");
+	wf->whisper_params.print_realtime = false;// obs_data_get_bool(s, "print_realtime");
+	wf->whisper_params.print_timestamps = false;// obs_data_get_bool(s, "print_timestamps");
+	wf->whisper_params.token_timestamps = true; //obs_data_get_bool(s, "token_timestamps");
 	wf->whisper_params.thold_pt = (float)obs_data_get_double(s, "thold_pt");
 	wf->whisper_params.thold_ptsum = (float)obs_data_get_double(s, "thold_ptsum");
 	wf->whisper_params.max_len = 60; //(int)obs_data_get_int(s, "max_len");
-	wf->whisper_params.split_on_word = obs_data_get_bool(s, "split_on_word");
+	wf->whisper_params.split_on_word =true; //obs_data_get_bool(s, "split_on_word");
 	wf->whisper_params.max_tokens = (int)obs_data_get_int(s, "max_tokens");
-	wf->whisper_params.speed_up = obs_data_get_bool(s, "speed_up");
-	wf->whisper_params.suppress_blank = obs_data_get_bool(s, "suppress_blank");
-	wf->whisper_params.suppress_non_speech_tokens = obs_data_get_bool(s, "suppress_non_speech_tokens");
+	wf->whisper_params.speed_up = false;//obs_data_get_bool(s, "speed_up");
+	wf->whisper_params.suppress_blank = true;  //obs_data_get_bool(s, "suppress_blank");
+	wf->whisper_params.suppress_non_speech_tokens = true; //obs_data_get_bool(s, "suppress_non_speech_tokens");
 	wf->whisper_params.temperature = (float)obs_data_get_double(s, "temperature");
 	wf->whisper_params.max_initial_ts = (float)obs_data_get_double(s, "max_initial_ts");
 	wf->whisper_params.length_penalty = (float)obs_data_get_double(s, "length_penalty");
@@ -601,6 +648,11 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	wf->whisper_ctx_mutex = new std::mutex();
 	wf->wshiper_thread_cv = new std::condition_variable();
 	wf->text_source_mutex = new std::mutex();
+
+	std::thread new_edit_thread(edit_loop, wf);
+	wf->edit_thread.swap(new_edit_thread);
+	std::mutex *audio_buf_mutex = new std::mutex();
+	std::mutex *timestamp_queue_mutex = new std::mutex();
 	obs_log(LOG_INFO, "watch_your_words: clear text source data");
 	wf->text_source = nullptr;
 	const char *subtitle_sources = obs_data_get_string(settings, "subtitle_sources");
@@ -644,14 +696,6 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	return wf;
 }
 
-void checkBanList() {
-	
-}
-
-void setTimestamp() {
-
-}
-
 struct obs_source_frame *wyw_source_filter_video(void *data, struct obs_source_frame *frame)
 {
 	return frame;
@@ -663,7 +707,7 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_bool(s, "vad_enabled", true);
 	obs_data_set_default_bool(s, "caption_to_stream", false);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
-	obs_data_set_default_string(s, "whisper_language_select", "ko");
+	//obs_data_set_default_string(s, "whisper_language_select", "ko");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_bool(s, "step_by_step_processing", false);
 	obs_data_set_default_bool(s, "process_while_muted", false);
@@ -675,24 +719,24 @@ void wyw_source_defaults(obs_data_t *s) {
 	// Whisper parameters
 	obs_data_set_default_int(s, "whisper_sampling_method", WHISPER_SAMPLING_BEAM_SEARCH);
 	//obs_data_set_default_string(s, "initial_prompt", "");
-	obs_data_set_default_int(s, "n_threads", 4);
-	obs_data_set_default_int(s, "n_max_text_ctx", 16384);
+	obs_data_set_default_int(s, "n_threads",std::min(4,(int)std::thread::hardware_concurrency()));
+	//obs_data_set_default_int(s, "n_max_text_ctx", 16384);
 	//obs_data_set_default_bool(s, "translate", false);
-	obs_data_set_default_bool(s, "no_context", true);
-	obs_data_set_default_bool(s, "single_segment", true);
-	obs_data_set_default_bool(s, "print_special", false);
-	obs_data_set_default_bool(s, "print_progress", false);
-	obs_data_set_default_bool(s, "print_realtime", false);
-	obs_data_set_default_bool(s, "print_timestamps", false);
+	//obs_data_set_default_bool(s, "no_context", true);
+	//obs_data_set_default_bool(s, "single_segment", true);
+	//obs_data_set_default_bool(s, "print_special", false);
+	//obs_data_set_default_bool(s, "print_progress", false);
+	//obs_data_set_default_bool(s, "print_realtime", false);
+	//obs_data_set_default_bool(s, "print_timestamps", false);
 	//obs_data_set_default_bool(s, "token_timestamps", false);
 	obs_data_set_default_double(s, "thold_pt", 0.01);
 	obs_data_set_default_double(s, "thold_ptsum", 0.01);
 	//obs_data_set_default_int(s, "max_len", 0);
-	obs_data_set_default_bool(s, "split_on_word", true);
+	//obs_data_set_default_bool(s, "split_on_word", true);
 	obs_data_set_default_int(s, "max_tokens", 32);
-	obs_data_set_default_bool(s, "speed_up", false);
-	obs_data_set_default_bool(s, "suppress_blank", false);
-	obs_data_set_default_bool(s, "suppress_non_speech_tokens", true);
+	//obs_data_set_default_bool(s, "speed_up", false);
+	//obs_data_set_default_bool(s, "suppress_blank", false);
+	//obs_data_set_default_bool(s, "suppress_non_speech_tokens", true);
 	obs_data_set_default_double(s, "temperature", 0.5);
 	obs_data_set_default_double(s, "max_initial_ts", 1.0);
 	obs_data_set_default_double(s, "length_penalty", -1.0);
@@ -786,14 +830,21 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_properties_t *whisper_params_group = obs_properties_create();
 	obs_properties_add_group(ppts, "whisper_params_group", MT_("whisper_parameters"), OBS_GROUP_NORMAL, whisper_params_group);
+  /*
+  obs_property_t *whisper_language_select_list = obs_properties_add_list(whisper_params_group, "whisper_language_select",
+    MT_("language"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 
-	obs_property_t *whisper_language_select_list = obs_properties_add_list(
-		whisper_params_group, "whisper_language_select",
-		MT_("language"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+  std::map<std::string, std::string> whisper_available_lang_flip;
+  for (auto const &pair : whisper_available_lang) {
+    whisper_available_lang_flip[pair.second] = pair.first;
+  }
 
-	obs_property_list_add_string(whisper_language_select_list, "Korean", "ko");
+  for (auto const &pair : whisper_available_lang_flip) {
+    std::string language_name = pair.first;
+    language_name[0] = (char)toupper(language_name[0]);
 
-	obs_property_set_visible(whisper_language_select_list, false);
+    obs_property_list_add_string(whisper_language_select_list, language_name.c_str(), pair.second.c_str());
+  }*/
 
 	obs_property_t *whisper_sampling_method_list = obs_properties_add_list(whisper_params_group, "whisper_sampling_method",
 		MT_("whisper_sampling_method"), OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
@@ -801,25 +852,25 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_property_list_add_int(whisper_sampling_method_list, "Greedy", WHISPER_SAMPLING_GREEDY);
 
 	// int n_threads;
-	obs_properties_add_int_slider(whisper_params_group, "n_threads", MT_("n_threads"), 1, 8, 1);
+	obs_properties_add_int_slider(whisper_params_group, "n_threads", MT_("n_threads"), 1,(int)std::thread::hardware_concurrency(),1);
 	// int n_max_text_ctx;     // max tokens to use from past text as prompt for the decoder
-	obs_properties_add_int_slider(whisper_params_group, "n_max_text_ctx", MT_("n_max_text_ctx"), 0, 16384, 100);
+	//obs_properties_add_int_slider(whisper_params_group, "n_max_text_ctx", MT_("n_max_text_ctx"), 0, 16384, 100);
 	// int offset_ms;          // start offset in ms
 	// int duration_ms;        // audio duration to process in ms
 	// bool translate;
 	//obs_properties_add_bool(whisper_params_group, "translate", MT_("translate"));
 	// bool no_context;        // do not use past transcription (if any) as initial prompt for the decoder
-	obs_properties_add_bool(whisper_params_group, "no_context", MT_("no_context"));
+	//obs_properties_add_bool(whisper_params_group, "no_context", MT_("no_context"));
 	// bool single_segment;    // force single segment output (useful for streaming)
-	obs_properties_add_bool(whisper_params_group, "single_segment", MT_("single_segment"));
+	//obs_properties_add_bool(whisper_params_group, "single_segment", MT_("single_segment"));
 	// bool print_special;     // print special tokens (e.g. <SOT>, <EOT>, <BEG>, etc.)
-	obs_properties_add_bool(whisper_params_group, "print_special", MT_("print_special"));
+	//obs_properties_add_bool(whisper_params_group, "print_special", MT_("print_special"));
 	// bool print_progress;    // print progress information
-	obs_properties_add_bool(whisper_params_group, "print_progress", MT_("print_progress"));
+	//obs_properties_add_bool(whisper_params_group, "print_progress", MT_("print_progress"));
 	// bool print_realtime;    // print results from within whisper.cpp (avoid it, use callback instead)
-	obs_properties_add_bool(whisper_params_group, "print_realtime", MT_("print_realtime"));
+	//obs_properties_add_bool(whisper_params_group, "print_realtime", MT_("print_realtime"));
 	// bool print_timestamps;  // print timestamps for each text segment when printing realtime
-	obs_properties_add_bool(whisper_params_group, "print_timestamps", MT_("print_timestamps"));
+	//obs_properties_add_bool(whisper_params_group, "print_timestamps", MT_("print_timestamps"));
 	// bool  token_timestamps; // enable token-level timestamps
 	//obs_properties_add_bool(whisper_params_group, "token_timestamps", MT_("token_timestamps"));
 	// float thold_pt;         // timestamp token probability threshold (~0.01)
@@ -829,17 +880,17 @@ obs_properties_t *wyw_source_properties(void *data)
 	// int   max_len;          // max segment length in characters
 	//obs_properties_add_int_slider(whisper_params_group, "max_len", MT_("max_len"), 0, 100, 1);
 	// bool  split_on_word;    // split on word rather than on token (when used with max_len)
-	obs_properties_add_bool(whisper_params_group, "split_on_word", MT_("split_on_word"));
+	//obs_properties_add_bool(whisper_params_group, "split_on_word", MT_("split_on_word"));
 	// int   max_tokens;       // max tokens per segment (0 = no limit)
 	obs_properties_add_int_slider(whisper_params_group, "max_tokens", MT_("max_tokens"), 0, 100, 1);
 	// bool speed_up;          // speed-up the audio by 2x using Phase Vocoder
-	obs_properties_add_bool(whisper_params_group, "speed_up", MT_("speed_up"));
+	//obs_properties_add_bool(whisper_params_group, "speed_up", MT_("speed_up"));
 	// const char * initial_prompt;
 	//obs_properties_add_text(whisper_params_group, "initial_prompt", MT_("initial_prompt"), OBS_TEXT_DEFAULT);
 	// bool suppress_blank
-	obs_properties_add_bool(whisper_params_group, "suppress_blank", MT_("suppress_blank"));
+	//obs_properties_add_bool(whisper_params_group, "suppress_blank", MT_("suppress_blank"));
 	// bool suppress_non_speech_tokens
-	obs_properties_add_bool(whisper_params_group, "suppress_non_speech_tokens", MT_("suppress_non_speech_tokens"));
+	//obs_properties_add_bool(whisper_params_group, "suppress_non_speech_tokens", MT_("suppress_non_speech_tokens"));
 	// float temperature
 	obs_properties_add_float_slider(whisper_params_group, "temperature", MT_("temperature"), 0.0f, 1.0f, 0.05f);
 	// float max_initial_ts
