@@ -5,6 +5,7 @@
 #include <obs.h>
 #include <math.h>
 #include <obs-frontend-api.h>
+#include <plugin-support.h>
 #include <vector>
 #include <deque>
 #include <queue>
@@ -31,6 +32,30 @@
 #include "whisper.h"
 
 #define MT_ obs_module_text
+
+inline enum speaker_layout convert_speaker_layout(uint8_t channels)
+{
+	switch (channels) {
+	case 0:
+		return SPEAKERS_UNKNOWN;
+	case 1:
+		return SPEAKERS_MONO;
+	case 2:
+		return SPEAKERS_STEREO;
+	case 3:
+		return SPEAKERS_2POINT1;
+	case 4:
+		return SPEAKERS_4POINT0;
+	case 5:
+		return SPEAKERS_4POINT1;
+	case 6:
+		return SPEAKERS_5POINT1;
+	case 8:
+		return SPEAKERS_7POINT1;
+	default:
+		return SPEAKERS_UNKNOWN;
+	}
+}
 
 struct edit_timestamp {
 	std::string text;
@@ -96,22 +121,27 @@ struct wyw_source_data {
 
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
 	std::string output_file_path = "";
-	std::string whisper_model_file_currently_loaded = "";
 
 	std::thread whisper_thread;
 	std::mutex *whisper_buf_mutex = nullptr;
 	std::mutex *whisper_ctx_mutex = nullptr;
 	std::condition_variable *wshiper_thread_cv = nullptr;
 
-	std::thread edit_thread;
 	std::deque<struct pair_audio> audio_buf;
 	//std::queue<struct obs_source_frame> video_buf;
 	std::queue<struct edit_timestamp> timestamp_queue;
 	std::vector<struct edit_timestamp> token_result;
+
+	std::thread edit_thread;
 	std::mutex *audio_buf_mutex = nullptr;
 	std::mutex *timestamp_queue_mutex = nullptr;
+	std::mutex *edit_mutex = nullptr;
+	std::condition_variable *edit_thread_cv = nullptr;
+
+	bool edit = false;
+
+	char *edit_mode = nullptr;
 	uint64_t start_timestamp;
-	uint64_t current_timestamp;
 	//struct obs_source_frame start_video_data;
 	std::vector<std::string> banlist;
 };

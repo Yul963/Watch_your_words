@@ -1,9 +1,4 @@
-﻿#include <whisper.h>
-
-
-#include "plugin-support.h"
-#include "source_data.h"
-#include "whisper-processing.h"
+﻿#include "whisper-processing.h"
 
 #define VAD_THOLD 0.6f
 #define FREQ_THOLD 100.0f
@@ -186,11 +181,11 @@ struct whisper_context *init_whisper_context(const std::string &model_path)
 	return ctx;
 }
 
-struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf, const float *pcm32f_data, size_t pcm32f_size)
+struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
+	const float *pcm32f_data, size_t pcm32f_size, uint64_t start_timestamp)
 {
 	obs_log(LOG_INFO, "%s: processing %d samples, %.3f sec, %d threads",
 		__func__, int(pcm32f_size), float(pcm32f_size) / WHISPER_SAMPLE_RATE, wf->whisper_params.n_threads);
-
 	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 	if (wf->whisper_context == nullptr) {
 		obs_log(LOG_WARNING, "whisper context is null");
@@ -252,7 +247,6 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 				const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
 				if (valid_UTF8(txt)) {
 					word1 += txt;
-					//fout << txt;
 				} else {
 					auto result = split_UTF8(txt);
 					if (!result[0].empty()) {
@@ -266,21 +260,24 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 						buf2.token_c++;
 					}
 					if (valid_UTF8(buf1.buffer)) {
-						//fout << buf1.buffer.c_str();
 						word1 += buf1.buffer;
 						buf1 = buf2;
 						buf2.clear();
 					}
 					if (!result[1].empty()) {
-						//fout << result[1].c_str();
 						word1 += result[1];
 					}
 				}
 				if (word1[0] == ' ' && !word2.empty()) {
 					word2.erase(0, 1);
-					//fout << word2 << "t0: " << (t0 + token.t0) * 1000000 << "t1: "<< (t1 + token.t1) * 1000000<< "\n";
-					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) * 1000000);//ms to ns
-					//word2.clear();
+					fout << word2 << "t0: "
+					     << token.t0 * 1000000 + start_timestamp << "t1: "
+					     << token.t1 * 1000000 + start_timestamp << "\n";
+					wf->token_result.emplace_back(
+						std::move(word2),
+						token.t0 * 1000000 + start_timestamp,
+						token.t1 * 1000000 + start_timestamp); //ms to ns
+					word2.clear();
 				}
 				word2 += word1;
 				word1.clear();
@@ -291,8 +288,13 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 					word2 += word1;
 				if (!word2.empty()) {
 					word2.erase(0, 1);
-					//fout << word2 << "t0: "<< (t0 + token.t0) * 1000000<< "t1: "<< (t1 + token.t1) * 1000000<< "\n";
-					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) *1000000);
+					fout << word2 << "t0: "
+					     << token.t0 * 1000000 + start_timestamp << "t1: "
+					     << token.t1 * 1000000 + start_timestamp << "\n";
+					wf->token_result.emplace_back(
+						std::move(word2),
+						token.t0 * 1000000 + start_timestamp,
+						token.t1 * 1000000 + start_timestamp);
 				}
 			}
 		}
@@ -396,7 +398,7 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 
 	if (!skipped_inference) {
 		// run inference
-		const struct DetectionResultWithText inference_result = run_whisper_inference(wf, output[0], out_frames);
+		const struct DetectionResultWithText inference_result = run_whisper_inference(wf, output[0], out_frames, start_timestamp);
 
 		if (inference_result.result == DETECTION_RESULT_SPEECH) {
 			// output inference result to a text source
@@ -426,15 +428,14 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 	}
 }
 
-void whisper_loop(void *data)
+void whisper_loop(struct wyw_source_data *wf)
 {
-	//fout.open("C:/Users/dbfrb/Desktop/test.txt",std::ios::out | std::ios::binary);
+	fout.open("C:/Users/dbfrb/Desktop/test.txt",std::ios::out | std::ios::binary);
 
-	if (data == nullptr) {
+	if (wf == nullptr) {
 		obs_log(LOG_ERROR, "whisper_loop: data is null");
 		return;
 	}
-	struct wyw_source_data *wf = static_cast<struct wyw_source_data *>(data);
 	obs_log(LOG_INFO, "starting whisper thread");
 	// Thread main loop
 	while (true) {
@@ -472,6 +473,48 @@ void whisper_loop(void *data)
 		std::unique_lock<std::mutex> lock(*wf->whisper_ctx_mutex);
 		wf->wshiper_thread_cv->wait_for(lock, std::chrono::milliseconds(10));
 	}
-	//fout.close();
+	fout.close();
 	obs_log(LOG_INFO, "exiting whisper thread");
+}
+
+void shutdown_whisper_thread(struct wyw_source_data *wf)
+{
+	obs_log(LOG_INFO, "shutdown_whisper_thread");
+	if (wf->whisper_context != nullptr) {
+		// acquire the mutex before freeing the context
+		if (!wf->whisper_ctx_mutex || !wf->wshiper_thread_cv) {
+			obs_log(LOG_ERROR, "whisper_ctx_mutex is null");
+			return;
+		}
+		std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+		whisper_free(wf->whisper_context);
+		wf->whisper_context = nullptr;
+		wf->wshiper_thread_cv->notify_all();
+	}
+	if (wf->whisper_thread.joinable()) {
+		wf->whisper_thread.join();
+	}
+	if (wf->whisper_model_path != nullptr) {
+		bfree(wf->whisper_model_path);
+		wf->whisper_model_path = nullptr;
+	}
+}
+
+void start_whisper_thread_with_path(struct wyw_source_data *wf,const std::string &path)
+{
+	obs_log(LOG_INFO, "start_whisper_thread_with_path: %s", path.c_str());
+	if (!wf->whisper_ctx_mutex) {
+		obs_log(LOG_ERROR,
+			"cannot init whisper: whisper_ctx_mutex is null");
+		return;
+	}
+	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+	if (wf->whisper_context != nullptr) {
+		obs_log(LOG_ERROR,
+			"cannot init whisper: whisper_context is not null");
+		return;
+	}
+	wf->whisper_context = init_whisper_context(path);
+	std::thread new_whisper_thread(whisper_loop, wf);
+	wf->whisper_thread.swap(new_whisper_thread);
 }
