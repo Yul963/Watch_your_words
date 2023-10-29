@@ -42,11 +42,13 @@ bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출�
 		memcpy(dest[i], src[i], sizeof(float) * 480);
 	}
 }
-
+uint64_t start=0, end=0;
+double sin_val = 0.0;
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	const size_t channels = wf->channels;
+	double rate = 1000.0 / wf->sample_rate;
 	float **fdata = (float **)audio->data;
 	if (!started) {
 		started = true;
@@ -71,6 +73,26 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	} else {
 		if (!wf->audio_buf.empty()) {
 			struct pair_audio temp = wf->audio_buf.front();
+			if (temp.timestamp >= start && temp.timestamp <= end) {
+				for (size_t c = 0; c < channels; c++) {
+					for (size_t j = 0; j < wf->frames; j++) {
+						sin_val += rate * M_PI * 2.0;
+						if (sin_val > M_PI * 2.0)
+							sin_val -= M_PI * 2.0;
+						double wave = sin(sin_val);
+						temp.data[c][j] = (float)(wave / 100.0);
+					}
+				}
+			} else if (temp.timestamp > end) {
+				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
+				if (!wf->timestamp_queue.empty()) {
+					edit_timestamp temp =
+						wf->timestamp_queue.front();
+					wf->timestamp_queue.pop();
+					start = temp.start;
+					end = temp.end;
+				}
+			}
 			copy_obs_audio_data(fdata, temp.data, channels);
 			//obs_log(LOG_INFO, "timstamp2: %llu)", audio->timestamp);
 			wf->audio_buf.pop_front();
@@ -80,6 +102,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			delete temp.data;
 		}
 	}
+	
 
 	if (!wf->active) {
 		return audio;
@@ -234,10 +257,13 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 			if (temp.text.find(word) != std::string::npos) {
 				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
 				wf->timestamp_queue.push(temp);
-				obs_log(LOG_INFO,"edit timestamp added t0: %llu, t1: %llu",temp.start, temp.end);
+				uint64_t a = (temp.end - temp.start);
+				obs_log(LOG_INFO,
+					"edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu", temp.start, temp.end, word.c_str(), a);
 			}
 		}
 	}
+	wf->token_result.clear();
 
 	if (wf->caption_to_stream) {
 		obs_output_t *streaming_output = obs_frontend_get_streaming_output();
@@ -336,8 +362,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 
 	wf->vad_enabled = obs_data_get_bool(s, "vad_enabled");
 	wf->caption_to_stream = obs_data_get_bool(s, "caption_to_stream");
-	bool step_by_step_processing = obs_data_get_bool(s, "step_by_step_processing");
-	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(s, "step_size_msec") : BUFFER_SIZE_MSEC;
+	wf->step_size_msec = BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(s, "subtitle_save_srt");
 	wf->save_only_while_recording = obs_data_get_bool(s, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(s, "rename_file_to_match_recording");
@@ -459,25 +484,25 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
 	wf->whisper_params.duration_ms = BUFFER_SIZE_MSEC;
 	wf->whisper_params.language = "ko";
-	wf->whisper_params.initial_prompt = "인터넷 방송 스트림"; //obs_data_get_string(s, "initial_prompt");
+	wf->whisper_params.initial_prompt = "";
 	wf->whisper_params.n_threads = std::min((int)obs_data_get_int(s, "n_threads"),(int)std::thread::hardware_concurrency());
-	wf->whisper_params.n_max_text_ctx = 16384; //(int)obs_data_get_int(s, "n_max_text_ctx");
-	wf->whisper_params.translate = false; //obs_data_get_bool(s, "translate");
-	wf->whisper_params.no_context =true; //obs_data_get_bool(s, "no_context");
-	wf->whisper_params.single_segment =true; //obs_data_get_bool(s, "single_segment");
-	wf->whisper_params.print_special = false;//obs_data_get_bool(s, "print_special");
-	wf->whisper_params.print_progress = false;// obs_data_get_bool(s, "print_progress");
-	wf->whisper_params.print_realtime = false;// obs_data_get_bool(s, "print_realtime");
-	wf->whisper_params.print_timestamps = false;// obs_data_get_bool(s, "print_timestamps");
-	wf->whisper_params.token_timestamps = true; //obs_data_get_bool(s, "token_timestamps");
+	wf->whisper_params.n_max_text_ctx = 16384;
+	wf->whisper_params.translate = false;
+	wf->whisper_params.no_context =true;
+	wf->whisper_params.single_segment =false; 
+	wf->whisper_params.print_special = false;
+	wf->whisper_params.print_progress = false;
+	wf->whisper_params.print_realtime = false;
+	wf->whisper_params.print_timestamps = false;
+	wf->whisper_params.token_timestamps = true;
 	wf->whisper_params.thold_pt = (float)obs_data_get_double(s, "thold_pt");
 	wf->whisper_params.thold_ptsum = (float)obs_data_get_double(s, "thold_ptsum");
-	wf->whisper_params.max_len = 60; //(int)obs_data_get_int(s, "max_len");
-	wf->whisper_params.split_on_word =true; //obs_data_get_bool(s, "split_on_word");
+	wf->whisper_params.max_len = 0;
+	wf->whisper_params.split_on_word =false;
 	wf->whisper_params.max_tokens = (int)obs_data_get_int(s, "max_tokens");
-	wf->whisper_params.speed_up = false;//obs_data_get_bool(s, "speed_up");
-	wf->whisper_params.suppress_blank = true;  //obs_data_get_bool(s, "suppress_blank");
-	wf->whisper_params.suppress_non_speech_tokens = true; //obs_data_get_bool(s, "suppress_non_speech_tokens");
+	wf->whisper_params.speed_up = false;
+	wf->whisper_params.suppress_blank = true;
+	wf->whisper_params.suppress_non_speech_tokens = true;
 	wf->whisper_params.temperature = (float)obs_data_get_double(s, "temperature");
 	wf->whisper_params.max_initial_ts = (float)obs_data_get_double(s, "max_initial_ts");
 	wf->whisper_params.length_penalty = (float)obs_data_get_double(s, "length_penalty");
@@ -495,8 +520,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	wf->sample_rate = audio_output_get_sample_rate(obs_get_audio());
 	wf->frames = (size_t)((float)wf->sample_rate /(1000.0f / (float)BUFFER_SIZE_MSEC));
 	wf->last_num_frames = 0;
-	bool step_by_step_processing = obs_data_get_bool(settings, "step_by_step_processing");
-	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(settings, "step_size_msec") : BUFFER_SIZE_MSEC;
+	wf->step_size_msec = BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(settings, "subtitle_save_srt");
 	wf->save_only_while_recording = obs_data_get_bool(settings, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(settings, "rename_file_to_match_recording");
@@ -596,12 +620,10 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_bool(s, "caption_to_stream", false);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
-	obs_data_set_default_bool(s, "step_by_step_processing", false);
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
 	obs_data_set_default_bool(s, "only_while_recording", false);
 	obs_data_set_default_bool(s, "rename_file_to_match_recording", true);
-	obs_data_set_default_int(s, "step_size_msec", 1000);
 
 	// Whisper parameters
 	obs_data_set_default_int(s, "whisper_sampling_method", WHISPER_SAMPLING_BEAM_SEARCH);
@@ -639,22 +661,6 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
-	obs_property_t *step_by_step_processing = obs_properties_add_bool(ppts, "step_by_step_processing", MT_("step_by_step_processing"));
-	obs_properties_add_int_slider(ppts, "step_size_msec", MT_("step_size_msec"), 1000, BUFFER_SIZE_MSEC, 50);
-
-	obs_property_set_modified_callback(
-		step_by_step_processing,
-		[](obs_properties_t *props, obs_property_t *property,
-		   obs_data_t *settings) {
-			UNUSED_PARAMETER(property);
-			// Show/Hide the step size input
-			obs_property_set_visible(
-				obs_properties_get(props, "step_size_msec"),
-				obs_data_get_bool(settings,
-						  "step_by_step_processing"));
-			return true;
-		});
-
 	obs_properties_add_bool(ppts, "process_while_muted", MT_("process_while_muted"));
 	obs_property_t *subs_output = obs_properties_add_list(
 		ppts, "subtitle_sources", MT_("subtitle_sources"),
