@@ -1,9 +1,9 @@
 #include "audio-processing.h"
-
+/*
 double sin_val = 0.0;
-double rate = 1000.0 / 48000.0;
 void edit_audio_buffer(struct wyw_source_data *wf)
 {
+	double rate = 1000.0 / wf->sample_rate;
 	const size_t channels = wf->channels;
 	pair_audio pair = wf->audio_buf.front();
 	if (!wf->timestamp_queue.empty()) {
@@ -37,10 +37,11 @@ void edit_audio_buffer(struct wyw_source_data *wf)
 				break;
 		}
 	}
-	/* temp = adata[c][i];
-	adata[c][i] = adata[c][audio->frames - i - 1];
-	adata[c][audio->frames-i] = temp;*/
+	// temp = adata[c][i];
+	//adata[c][i] = adata[c][audio->frames - i - 1];
+	//adata[c][audio->frames-i] = temp;
 }
+*/
 
 void edit_loop(struct wyw_source_data *wf)
 {
