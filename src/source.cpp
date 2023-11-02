@@ -461,7 +461,6 @@ void wyw_source_update(void *data, obs_data_t *s)
 	bool step_by_step_processing = obs_data_get_bool(s, "step_by_step_processing");
 	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(s, "step_size_msec") : BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(s, "subtitle_save_srt");
-	wf->rename_file_to_match_recording = obs_data_get_bool(s, "rename_file_to_match_recording");
 	// Get the current timestamp using the system clock
 	wf->start_timestamp_ms = now_ms();
 	wf->sentence_number = 1;
@@ -611,7 +610,6 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	bool step_by_step_processing = obs_data_get_bool(settings, "step_by_step_processing");
 	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(settings, "step_size_msec") : BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(settings, "subtitle_save_srt");
-	wf->rename_file_to_match_recording = obs_data_get_bool(settings, "rename_file_to_match_recording");
 	wf->process_while_muted = obs_data_get_bool(settings, "process_while_muted");
 
 	for (size_t i = 0; i < MAX_AUDIO_CHANNELS; i++) {
@@ -681,7 +679,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 				}
 			} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
 				struct wyw_source_data *wf_ = static_cast<struct wyw_source_data*>(private_data);
-				if (wf_->save_srt && wf_->rename_file_to_match_recording) {
+				if (wf_->save_srt) {
 					obs_log(LOG_INFO, "Recording stopped. Rename srt file.");
 					std::string recording_file_name = obs_frontend_get_last_recording();
 					recording_file_name = recording_file_name.substr(0,recording_file_name.find_last_of("."));
@@ -708,7 +706,6 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_bool(s, "step_by_step_processing", false);
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
-	obs_data_set_default_bool(s, "rename_file_to_match_recording", true);
 	obs_data_set_default_int(s, "step_size_msec", 1000);
 
 	// Whisper parameters
@@ -792,7 +789,6 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_properties_add_path(ppts, "subtitle_output_filename", MT_("output_filename"), OBS_PATH_FILE_SAVE, "Text (*.txt)", NULL);
 	obs_properties_add_bool(ppts, "subtitle_save_srt", MT_("save_srt"));
-	obs_properties_add_bool(ppts, "rename_file_to_match_recording", MT_("rename_file_to_match_recording"));
 
 	obs_property_set_modified_callback(
 		subs_output,[](obs_properties_t *props, obs_property_t *property,obs_data_t *settings) {
@@ -802,7 +798,6 @@ obs_properties_t *wyw_source_properties(void *data)
 			const bool show_hide =(strcmp(new_output, "text_file") == 0);
 			obs_property_set_visible(obs_properties_get(props,"subtitle_output_filename"),show_hide);
 			obs_property_set_visible(obs_properties_get(props, "subtitle_save_srt"),show_hide);
-			obs_property_set_visible(obs_properties_get(props,"rename_file_to_match_recording"),show_hide);
 			return true;
 		});
 

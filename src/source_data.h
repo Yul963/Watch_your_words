@@ -87,7 +87,6 @@ struct wyw_source_data {
 	bool active = false;
 	bool save_srt = false;
 	bool process_while_muted = false;
-	bool rename_file_to_match_recording = false;
 
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
