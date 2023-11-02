@@ -1,108 +1,19 @@
-﻿#include <whisper.h>
+﻿#include "whisper-processing.h"
 
-
-#include "plugin-support.h"
-#include "source_data.h"
-#include "whisper-processing.h"
-
-#define VAD_THOLD 0.6f
+#define VAD_THOLD 0.0001f
 #define FREQ_THOLD 100.0f
-std::ofstream fout;
+//std::ofstream fout;
 
-// split UTF-8 string into valid and invalid parts
-// eg. (a = "�123456", result = {"�", "123456", ""})
-// eg. (a = "123456�", result = {"", "123456", "�"})
-// result = {invalid, valid, invalid}
-std::vector<std::string> split_UTF8(const std::string &a)
+std::vector<std::string> split_segment_text(const std::string &input)
 {
-	if (a.empty()) {
-		return {"", "", ""};
+	std::istringstream iss(input);
+	std::vector<std::string> words;
+	std::string word;
+	while (iss >> word) {
+		words.push_back(word);
 	}
-	std::string str1;
-	std::string str2;
-	std::string str3;
-
-	// forward pass
-	for (int64_t i = 0; i < static_cast<int64_t>(a.length()); i++) {
-		auto value = static_cast<uint8_t>(a[i]);
-		if (value >= 0 && value <= 127 ||
-		    value >= 192 && value <= 247) {
-			// 1, 2, 3, 4 byte head
-			break;
-		} else if (value >= 128 && value <= 191) {
-			// body byte
-			str1 += a[i];
-		}
-	}
-
-	// backward pass
-	int length = 0;
-	int expect = 0;
-	for (int64_t i = static_cast<int64_t>(a.length()) - 1; i >= 0; i--) {
-		auto value = static_cast<uint8_t>(a[i]);
-		if (value >= 0 && value <= 127) {
-			// 1 byte head
-			expect = 1;
-			length++;
-			break;
-		} else if (value >= 128 && value <= 191) {
-			// body byte
-			length++;
-		} else if (value >= 192 && value <= 223) {
-			// 2 bytes head
-			expect = 2;
-			length++;
-			break;
-		} else if (value >= 224 && value <= 239) {
-			// 3 bytes head
-			expect = 3;
-			length++;
-			break;
-		} else if (value >= 240 && value <= 247) {
-			// 4 bytes head
-			expect = 4;
-			length++;
-			break;
-		}
-	}
-	if (expect != length) {
-		str3 = a.substr(a.length() - length, length);
-	}
-
-	str2 = a.substr(str1.length(), a.length() - str3.length());
-
-	if (str1 == str3 &&
-	    str1.length() + str2.length() + str3.length() > a.length()) {
-		return {str1, str2, ""};
-	}
-	return {str1, str2, str3};
+	return words;
 }
-
-// check whether the start and the end of std::string is encoded in UTF-8
-bool valid_UTF8(const std::string &a)
-{
-	if (a.empty()) {
-		return true;
-	}
-	auto result = split_UTF8(a);
-	if (result[0].empty() && result[2].empty()) {
-		return true;
-	}
-	return false;
-}
-
-struct UTF8_buf {
-	std::string buffer; // token buffer (Store incomplete UTF-8 token)
-	float p_sum = 0.0;  // token probability sum
-	int token_c = 0;    // total number of tokens in buffer
-
-	void clear()
-	{
-		buffer = "";
-		p_sum = 0.0;
-		token_c = 0;
-	}
-};
 
 std::string to_timestamp(int64_t t)
 {
@@ -122,51 +33,32 @@ void high_pass_filter(float *pcmf32, size_t pcm32f_size, float cutoff, uint32_t 
 	const float rc = 1.0f / (2.0f * (float)M_PI * cutoff);
 	const float dt = 1.0f / (float)sample_rate;
 	const float alpha = dt / (rc + dt);
-
 	float y = pcmf32[0];
-
 	for (size_t i = 1; i < pcm32f_size; i++) {
 		y = alpha * (y + pcmf32[i] - pcmf32[i - 1]);
 		pcmf32[i] = y;
 	}
 }
 
-bool vad_simple(float *pcmf32, size_t pcm32f_size, uint32_t sample_rate, int last_ms,
+// VAD (voice activity detection), return true if speech detected
+bool vad_simple(float *pcmf32, size_t pcm32f_size, uint32_t sample_rate,
 		float vad_thold, float freq_thold, bool verbose)
 {
-	const int n_samples = (int)pcm32f_size;
-	const int n_samples_last = (sample_rate * last_ms) / 1000;
-
-	if (n_samples_last >= n_samples) {
-		obs_log(LOG_INFO, "not enough samples");
-		return false;
-	}
-
+	const uint64_t n_samples = pcm32f_size;
 	if (freq_thold > 0.0f) {
-		high_pass_filter(pcmf32, n_samples, freq_thold, sample_rate);
+		high_pass_filter(pcmf32, pcm32f_size, freq_thold, sample_rate);
 	}
-
 	float energy_all = 0.0f;
-	float energy_last = 0.0f;
-
-	for (int i = 0; i < n_samples; i++) {
+	for (uint64_t i = 0; i < n_samples; i++) {
 		energy_all += fabsf(pcmf32[i]);
-
-		if (i >= n_samples - n_samples_last) {
-			energy_last += fabsf(pcmf32[i]);
-		}
 	}
-
-	energy_all /= n_samples;
-	energy_last /= n_samples_last;
-
+	energy_all /= (float)n_samples;
 	if (verbose) {
-		fprintf(stderr,
-			"%s: energy_all: %f, energy_last: %f, vad_thold: %f, freq_thold: %f\n",
-			__func__, energy_all, energy_last, vad_thold,
-			freq_thold);
+		obs_log(LOG_INFO,
+			"%s: energy_all: %f, vad_thold: %f, freq_thold: %f",
+			__func__, energy_all, vad_thold, freq_thold);
 	}
-	if (energy_last > vad_thold * energy_all) {
+	if (energy_all < vad_thold) {
 		return false;
 	}
 	return true;
@@ -186,11 +78,11 @@ struct whisper_context *init_whisper_context(const std::string &model_path)
 	return ctx;
 }
 
-struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf, const float *pcm32f_data, size_t pcm32f_size)
+struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
+	const float *pcm32f_data, size_t pcm32f_size, uint64_t start_timestamp)
 {
 	obs_log(LOG_INFO, "%s: processing %d samples, %.3f sec, %d threads",
 		__func__, int(pcm32f_size), float(pcm32f_size) / WHISPER_SAMPLE_RATE, wf->whisper_params.n_threads);
-
 	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 	if (wf->whisper_context == nullptr) {
 		obs_log(LOG_WARNING, "whisper context is null");
@@ -220,21 +112,20 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 	} else {
 		const int n_segment = 0;
 		const char *text = whisper_full_get_segment_text(wf->whisper_context, n_segment);
-		 
+		std::vector<std::string> words = split_segment_text(text);
 		const int64_t t0 = offset_ms;//whisper_full_get_segment_t0(wf->whisper_context, n_segment); 
 		//offset_ms;
 		const int64_t t1 = offset_ms + duration_ms;
 		//whisper_full_get_segment_t1(wf->whisper_context, n_segment); 
 		//offset_ms + duration_ms;
-
+		std::vector<edit_timestamp> edit;
+		int64_t word_t0 = 0;
+		int64_t word_t1 = 0;//word timestamp
 		float sentence_p = 0.0f;
 		const int n_tokens = whisper_full_n_tokens(wf->whisper_context, n_segment);
 		//std::vector<whisper_token_data> tokens(n_tokens);
-		struct UTF8_buf buf1;
-		struct UTF8_buf buf2;
 		std::string word1, word2;
-		wf->token_result.clear();
-
+		//fout << "start_timestamp: " << start_timestamp << "\n";
 		//for (int j = 0; j < n_tokens; ++j) {
 		//	tokens[j] = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
 		//}
@@ -244,57 +135,67 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			//const float p = whisper_full_get_token_p(wf->whisper_context, n_segment, j);
 			const float p = token.p;
 			sentence_p += p;
-			//bool eot = tokens[j].id >=whisper_token_eot(wf->whisper_context);
 			bool eot = token.id >= whisper_token_eot(wf->whisper_context);
-			//whisper_full_get_token_id(wf->whisper_context, n_segment, j) >=
-				   
 			if (!eot) {
 				const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
-				if (valid_UTF8(txt)) {
-					word1 += txt;
-					//fout << txt;
-				} else {
-					auto result = split_UTF8(txt);
-					if (!result[0].empty()) {
-						buf1.buffer += result[0];
-						buf1.p_sum += p;
-						buf1.token_c++;
-					}
-					if (!result[2].empty()) {
-						buf2.buffer += result[2];
-						buf2.p_sum += p;
-						buf2.token_c++;
-					}
-					if (valid_UTF8(buf1.buffer)) {
-						//fout << buf1.buffer.c_str();
-						word1 += buf1.buffer;
-						buf1 = buf2;
-						buf2.clear();
-					}
-					if (!result[1].empty()) {
-						//fout << result[1].c_str();
-						word1 += result[1];
-					}
+				/* fout << "all token t0 : "
+				     << token.t0
+				     << "t1: "
+				     << token.t1
+				     << "\n";*/
+				word1 += txt;
+				if (word1.empty() || word1[0] == '.') {
+					word1.clear();
+					continue;
 				}
-				if (word1[0] == ' ' && !word2.empty()) {
-					word2.erase(0, 1);
-					//fout << word2 << "t0: " << (t0 + token.t0) * 1000000 << "t1: "<< (t1 + token.t1) * 1000000<< "\n";
-					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) * 1000000);//ms to ns
-					//word2.clear();
+				if (word2.empty()) {
+					word2 += word1;
+					word1.clear();
+					word_t0 = token.t0;
+					word_t1 = token.t1;
+				} else if (word1[0] == ' ') {
+					/* fout << "token t0: "
+							<< word_t0 * 10000000 +
+							start_timestamp
+							<< "t1: "
+							<< word_t1 * 10000000 +
+							start_timestamp
+							<< "\n"
+							<< word_t0 << " " << word_t1 << "\n";*/
+					edit.emplace_back(
+						"",
+						word_t0 * 10000000 +
+							start_timestamp,
+						word_t1 * 10000000 +
+							start_timestamp); //ms to ns
+					word2.clear();
+
+					word2 += word1;
+					word_t0 = token.t0;
+					word_t1 = token.t1;
+					word1.clear();
 				}
 				word2 += word1;
+				word_t1 = token.t1;
 				word1.clear();
 			}
-			
 			if ((n_tokens - 1) == j) {
-				if (!eot)
-					word2 += word1;
-				if (!word2.empty()) {
-					word2.erase(0, 1);
-					//fout << word2 << "t0: "<< (t0 + token.t0) * 1000000<< "t1: "<< (t1 + token.t1) * 1000000<< "\n";
-					wf->token_result.emplace_back(std::move(word2),(t0 + token.t0) * 1000000,(t1 + token.t1) *1000000);
-				}
+				/* fout
+					<< "token t0: "
+				     << word_t0 * 10000000 + start_timestamp
+				     << "t1: "
+				     << word_t1 * 10000000 + start_timestamp
+				     << "\n"
+				     << word_t0 << " " << word_t1 << "\n";*/
+				edit.emplace_back(
+					"",
+					word_t0 * 10000000 + start_timestamp,
+					word_t1 * 10000000 +
+						start_timestamp); //ms to ns
+				word2.clear();
 			}
+			
+					
 		}
 		sentence_p /= (float)n_tokens;
 
@@ -303,11 +204,20 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		std::transform(text_lower.begin(), text_lower.end(), text_lower.begin(), ::tolower);
 		// trim whitespace (use lambda)
 		text_lower.erase(std::find_if(text_lower.rbegin(), text_lower.rend(),[](unsigned char ch) { return !std::isspace(ch); }).base(),text_lower.end());
-		
+		if (edit.size() == words.size()) {
+			for (int i = 0; i < edit.size(); i++) {
+				edit[i].text = words[i];
+			}
+			wf->token_result = edit;
+		}
+		else {
+			obs_log(LOG_ERROR,
+				"edit size %d, words size %d not match.",
+				edit.size(), words.size());
+		}
 		//obs_log(LOG_INFO, "wisper segment: %d", whisper_full_n_segments(wf->whisper_context));
 		obs_log(LOG_INFO, "[%s --> %s] (%.3f) %s", to_timestamp(t0).c_str(),
 				to_timestamp(t1).c_str(), sentence_p, text_lower.c_str());
-
 		if (text_lower.empty() || text_lower == ".") {
 			return {DETECTION_RESULT_SILENCE, "", 0, 0};
 		}
@@ -391,12 +301,13 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 	bool skipped_inference = false;
 
 	if (wf->vad_enabled) {
-		skipped_inference = !::vad_simple(output[0], out_frames, WHISPER_SAMPLE_RATE, 1000, VAD_THOLD, FREQ_THOLD, false);
+		skipped_inference = !::vad_simple(output[0], out_frames, WHISPER_SAMPLE_RATE, VAD_THOLD,
+			FREQ_THOLD, true);
 	}
 
 	if (!skipped_inference) {
 		// run inference
-		const struct DetectionResultWithText inference_result = run_whisper_inference(wf, output[0], out_frames);
+		const struct DetectionResultWithText inference_result = run_whisper_inference(wf, output[0], out_frames, start_timestamp);
 
 		if (inference_result.result == DETECTION_RESULT_SPEECH) {
 			// output inference result to a text source
@@ -426,15 +337,14 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 	}
 }
 
-void whisper_loop(void *data)
+void whisper_loop(struct wyw_source_data *wf)
 {
-	//fout.open("C:/Users/dbfrb/Desktop/test.txt",std::ios::out | std::ios::binary);
+	//fout.open("C:/Users/dbfrb/Desktop/test.txt", std::ios::out | std::ios::binary);
 
-	if (data == nullptr) {
+	if (wf == nullptr) {
 		obs_log(LOG_ERROR, "whisper_loop: data is null");
 		return;
 	}
-	struct wyw_source_data *wf = static_cast<struct wyw_source_data *>(data);
 	obs_log(LOG_INFO, "starting whisper thread");
 	// Thread main loop
 	while (true) {
@@ -474,4 +384,46 @@ void whisper_loop(void *data)
 	}
 	//fout.close();
 	obs_log(LOG_INFO, "exiting whisper thread");
+}
+
+void shutdown_whisper_thread(struct wyw_source_data *wf)
+{
+	obs_log(LOG_INFO, "shutdown_whisper_thread");
+	if (wf->whisper_context != nullptr) {
+		// acquire the mutex before freeing the context
+		if (!wf->whisper_ctx_mutex || !wf->wshiper_thread_cv) {
+			obs_log(LOG_ERROR, "whisper_ctx_mutex is null");
+			return;
+		}
+		std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+		whisper_free(wf->whisper_context);
+		wf->whisper_context = nullptr;
+		wf->wshiper_thread_cv->notify_all();
+	}
+	if (wf->whisper_thread.joinable()) {
+		wf->whisper_thread.join();
+	}
+	if (wf->whisper_model_path != nullptr) {
+		bfree(wf->whisper_model_path);
+		wf->whisper_model_path = nullptr;
+	}
+}
+
+void start_whisper_thread_with_path(struct wyw_source_data *wf,const std::string &path)
+{
+	obs_log(LOG_INFO, "start_whisper_thread_with_path: %s", path.c_str());
+	if (!wf->whisper_ctx_mutex) {
+		obs_log(LOG_ERROR,
+			"cannot init whisper: whisper_ctx_mutex is null");
+		return;
+	}
+	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+	if (wf->whisper_context != nullptr) {
+		obs_log(LOG_ERROR,
+			"cannot init whisper: whisper_context is not null");
+		return;
+	}
+	wf->whisper_context = init_whisper_context(path);
+	std::thread new_whisper_thread(whisper_loop, wf);
+	wf->whisper_thread.swap(new_whisper_thread);
 }
