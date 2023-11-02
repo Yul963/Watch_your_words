@@ -331,8 +331,7 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 
 	if (wf->output_file_path != "" && !wf->text_source_name) {
 		// Check if we should save the sentence
-		if (wf->save_only_while_recording &&
-		    !obs_frontend_recording_active()) {
+		if (!obs_frontend_recording_active()) {
 			// We are not recording, do not save the sentence to file
 			return;
 		}
@@ -462,7 +461,6 @@ void wyw_source_update(void *data, obs_data_t *s)
 	bool step_by_step_processing = obs_data_get_bool(s, "step_by_step_processing");
 	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(s, "step_size_msec") : BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(s, "subtitle_save_srt");
-	wf->save_only_while_recording = obs_data_get_bool(s, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(s, "rename_file_to_match_recording");
 	// Get the current timestamp using the system clock
 	wf->start_timestamp_ms = now_ms();
@@ -613,7 +611,6 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	bool step_by_step_processing = obs_data_get_bool(settings, "step_by_step_processing");
 	wf->step_size_msec = step_by_step_processing ? (int)obs_data_get_int(settings, "step_size_msec") : BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(settings, "subtitle_save_srt");
-	wf->save_only_while_recording = obs_data_get_bool(settings, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(settings, "rename_file_to_match_recording");
 	wf->process_while_muted = obs_data_get_bool(settings, "process_while_muted");
 
@@ -675,8 +672,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 		[](enum obs_frontend_event event, void *private_data) {
 			if (event == OBS_FRONTEND_EVENT_RECORDING_STARTING) {
 				struct wyw_source_data *wf_ = static_cast<struct wyw_source_data*>(private_data);
-				if (wf_->save_srt &&
-				    wf_->save_only_while_recording) {
+				if (wf_->save_srt) {
 					obs_log(LOG_INFO,"Recording started. Resetting srt file.");
 					std::ofstream output_file(wf_->output_file_path, std::ios::out | std::ios::trunc);
 					output_file.close();
@@ -685,7 +681,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 				}
 			} else if (event == OBS_FRONTEND_EVENT_RECORDING_STOPPED) {
 				struct wyw_source_data *wf_ = static_cast<struct wyw_source_data*>(private_data);
-				if (wf_->save_srt && wf_->save_only_while_recording && wf_->rename_file_to_match_recording) {
+				if (wf_->save_srt && wf_->rename_file_to_match_recording) {
 					obs_log(LOG_INFO, "Recording stopped. Rename srt file.");
 					std::string recording_file_name = obs_frontend_get_last_recording();
 					recording_file_name = recording_file_name.substr(0,recording_file_name.find_last_of("."));
@@ -712,7 +708,6 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_bool(s, "step_by_step_processing", false);
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
-	obs_data_set_default_bool(s, "only_while_recording", false);
 	obs_data_set_default_bool(s, "rename_file_to_match_recording", true);
 	obs_data_set_default_int(s, "step_size_msec", 1000);
 
@@ -797,7 +792,6 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_properties_add_path(ppts, "subtitle_output_filename", MT_("output_filename"), OBS_PATH_FILE_SAVE, "Text (*.txt)", NULL);
 	obs_properties_add_bool(ppts, "subtitle_save_srt", MT_("save_srt"));
-	obs_properties_add_bool(ppts, "only_while_recording", MT_("only_while_recording"));
 	obs_properties_add_bool(ppts, "rename_file_to_match_recording", MT_("rename_file_to_match_recording"));
 
 	obs_property_set_modified_callback(
@@ -808,7 +802,6 @@ obs_properties_t *wyw_source_properties(void *data)
 			const bool show_hide =(strcmp(new_output, "text_file") == 0);
 			obs_property_set_visible(obs_properties_get(props,"subtitle_output_filename"),show_hide);
 			obs_property_set_visible(obs_properties_get(props, "subtitle_save_srt"),show_hide);
-			obs_property_set_visible(obs_properties_get(props,"only_while_recording"),show_hide);
 			obs_property_set_visible(obs_properties_get(props,"rename_file_to_match_recording"),show_hide);
 			return true;
 		});
