@@ -472,7 +472,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	if (new_text_source_name == nullptr ||
 	    strcmp(new_text_source_name, "none") == 0 ||
 	    strcmp(new_text_source_name, "(null)") == 0 ||
-	    strcmp(new_text_source_name, "text_file") == 0 ||
+	    strcmp(new_text_source_name, "srt_file") == 0 ||
 	    strlen(new_text_source_name) == 0) {
 		// new selected text source is not valid, release the old one
 		if (wf->text_source) {
@@ -489,12 +489,11 @@ void wyw_source_update(void *data, obs_data_t *s)
 			wf->text_source_name = nullptr;
 		}
 		wf->output_file_path = "";
-		if (strcmp(new_text_source_name, "text_file") == 0) {
+		if (strcmp(new_text_source_name, "srt_file") == 0) {
 			// set the output file path
-			const char *output_file_path = obs_data_get_string(s, "subtitle_output_filename");
-			if (output_file_path != nullptr && strlen(output_file_path) > 0) {
-				wf->output_file_path = output_file_path;
-			}
+			std::string current_path = obs_frontend_get_current_record_output_path();
+			std::string tmp_path = "tmp.srt";
+			wf->output_file_path = current_path + tmp_path;
 		}
 	} else {
 		// new selected text source is valid, check if it's different from the old one
@@ -673,6 +672,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 				if (wf_->save_srt) {
 					obs_log(LOG_INFO,"Recording started. Resetting srt file.");
 					std::ofstream output_file(wf_->output_file_path, std::ios::out | std::ios::trunc);
+					obs_log(LOG_INFO, "output_file_path is %s", wf_->output_file_path.c_str());
 					output_file.close();
 					wf_->sentence_number = 1;
 					wf_->start_timestamp_ms = now_ms();
@@ -685,6 +685,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 					recording_file_name = recording_file_name.substr(0,recording_file_name.find_last_of("."));
 					std::string srt_file_name = recording_file_name + ".srt";
 					std::rename(wf_->output_file_path.c_str(), srt_file_name.c_str());
+					obs_log(LOG_INFO, "srt_file_name is %s", srt_file_name.c_str());
 				}}},wf);
 	//obs_log(LOG_INFO, "watch-your-words source created.");
 	return wf;
@@ -782,12 +783,11 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_property_list_add_string(subs_output, MT_("none_no_output"),
 				     "none");
-	obs_property_list_add_string(subs_output, MT_("text_file_output"),
-				     "text_file");
+	obs_property_list_add_string(subs_output, MT_("srt_file_output"),
+				     "srt_file");
 	// Add text sources
 	obs_enum_sources(add_sources_to_list, subs_output);
 
-	obs_properties_add_path(ppts, "subtitle_output_filename", MT_("output_filename"), OBS_PATH_FILE_SAVE, "Text (*.txt)", NULL);
 	obs_properties_add_bool(ppts, "subtitle_save_srt", MT_("save_srt"));
 
 	obs_property_set_modified_callback(
@@ -795,8 +795,7 @@ obs_properties_t *wyw_source_properties(void *data)
 			UNUSED_PARAMETER(property);
 			// Show or hide the output filename selection input
 			const char *new_output = obs_data_get_string(settings, "subtitle_sources");
-			const bool show_hide =(strcmp(new_output, "text_file") == 0);
-			obs_property_set_visible(obs_properties_get(props,"subtitle_output_filename"),show_hide);
+			const bool show_hide =(strcmp(new_output, "srt_file") == 0);
 			obs_property_set_visible(obs_properties_get(props, "subtitle_save_srt"),show_hide);
 			return true;
 		});
