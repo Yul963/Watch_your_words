@@ -78,8 +78,7 @@ struct whisper_context *init_whisper_context(const std::string &model_path)
 	return ctx;
 }
 
-struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
-	const float *pcm32f_data, size_t pcm32f_size, uint64_t start_timestamp)
+struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf, const float *pcm32f_data, size_t pcm32f_size, uint64_t start_timestamp)
 {
 	obs_log(LOG_INFO, "%s: processing %d samples, %.3f sec, %d threads",
 		__func__, int(pcm32f_size), float(pcm32f_size) / WHISPER_SAMPLE_RATE, wf->whisper_params.n_threads);
@@ -113,9 +112,8 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		const int n_segment = 0;
 		const char *text = whisper_full_get_segment_text(wf->whisper_context, n_segment);
 		std::vector<std::string> words = split_segment_text(text);
-		const int64_t t0 = offset_ms;//whisper_full_get_segment_t0(wf->whisper_context, n_segment); 
-		//offset_ms;
-		const int64_t t1 = offset_ms + duration_ms;
+		const int64_t t0 = offset_ms - duration_ms; //whisper_full_get_segment_t0(wf->whisper_context, n_segment); 
+		const int64_t t1 = offset_ms;
 		//whisper_full_get_segment_t1(wf->whisper_context, n_segment); 
 		//offset_ms + duration_ms;
 		std::vector<edit_timestamp> edit;
@@ -129,6 +127,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 		//for (int j = 0; j < n_tokens; ++j) {
 		//	tokens[j] = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
 		//}
+		//fout << " segment t0: "<< whisper_full_get_segment_t0(wf->whisper_context, n_segment)<< "\n";
 		for (int j = 0; j < n_tokens; ++j) {
 			//const auto &token = tokens[j];
 			const auto token = whisper_full_get_token_data(wf->whisper_context, n_segment, j);
@@ -136,13 +135,9 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			const float p = token.p;
 			sentence_p += p;
 			bool eot = token.id >= whisper_token_eot(wf->whisper_context);
+			const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
+
 			if (!eot) {
-				const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
-				/* fout << "all token t0 : "
-				     << token.t0
-				     << "t1: "
-				     << token.t1
-				     << "\n";*/
 				word1 += txt;
 				if (word1.empty() || word1[0] == '.') {
 					word1.clear();
@@ -151,17 +146,9 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 				if (word2.empty()) {
 					word2 += word1;
 					word1.clear();
-					word_t0 = token.t0;
+					word_t0 = (token.t1 - 30) > 0 ? (token.t1 - 30) : 0;
 					word_t1 = token.t1;
 				} else if (word1[0] == ' ') {
-					/* fout << "token t0: "
-							<< word_t0 * 10000000 +
-							start_timestamp
-							<< "t1: "
-							<< word_t1 * 10000000 +
-							start_timestamp
-							<< "\n"
-							<< word_t0 << " " << word_t1 << "\n";*/
 					edit.emplace_back(
 						"",
 						word_t0 * 10000000 +
@@ -171,22 +158,15 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 					word2.clear();
 
 					word2 += word1;
-					word_t0 = token.t0;
+					word_t0 = (token.t1 - 30) > 0? (token.t1 - 30): 0;
 					word_t1 = token.t1;
 					word1.clear();
 				}
 				word2 += word1;
-				word_t1 = token.t1;
+				word_t1 = token.t0;
 				word1.clear();
 			}
 			if ((n_tokens - 1) == j) {
-				/* fout
-					<< "token t0: "
-				     << word_t0 * 10000000 + start_timestamp
-				     << "t1: "
-				     << word_t1 * 10000000 + start_timestamp
-				     << "\n"
-				     << word_t0 << " " << word_t1 << "\n";*/
 				edit.emplace_back(
 					"",
 					word_t0 * 10000000 + start_timestamp,
@@ -222,7 +202,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			return {DETECTION_RESULT_SILENCE, "", 0, 0};
 		}
 
-		return {DETECTION_RESULT_SPEECH, text_lower, offset_ms, offset_ms + duration_ms};
+		return {DETECTION_RESULT_SPEECH, text_lower, offset_ms - duration_ms, offset_ms};
 	}
 }
 
@@ -239,6 +219,11 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 		const size_t size_of_audio_info = sizeof(struct watch_your_words_audio_info);
 		while (wf->info_buffer.size >= size_of_audio_info) {
 			circlebuf_pop_front(&wf->info_buffer, &info_from_buf, size_of_audio_info);
+		//	fout << "info_buffer.size: " << wf->info_buffer.size
+		//	     << " num_new_frames_from_infos: "
+		//	     << num_new_frames_from_infos
+		//	     << " remaining_frames_to_full_segment: "
+		//	     << remaining_frames_to_full_segment << "\n";
 			num_new_frames_from_infos += info_from_buf.frames;
 			if (start_timestamp == 0) {
 				start_timestamp = info_from_buf.timestamp;
@@ -263,6 +248,9 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 			circlebuf_pop_front(&wf->input_buffers[c],
 					    wf->copy_buffers[c] + wf->last_num_frames,
 					    num_new_frames_from_infos * sizeof(float));
+		//	fout << "pop count: " << c << "size: "
+		//	     << num_new_frames_from_infos * sizeof(float)
+		//	     << "\n";
 		}
 	}
 
@@ -278,7 +266,7 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 				(int)(wf->last_num_frames));
 		}
 	} else {
-		wf->last_num_frames = num_new_frames_from_infos;
+		wf->last_num_frames = wf->overlap_frames;
 		obs_log(LOG_INFO, "first segment, %d frames to process",
 			(int)(wf->last_num_frames));
 	}
@@ -361,9 +349,10 @@ void whisper_loop(struct wyw_source_data *wf)
 				std::lock_guard<std::mutex> lock(*wf->whisper_buf_mutex);
 				input_buf_size = wf->input_buffers[0].size;
 			}
-			const size_t step_size_frames = wf->step_size_msec * wf->sample_rate / 1000;
-			const size_t segment_size = step_size_frames * sizeof(float);
-
+			//const size_t step_size_frames = wf->step_size_msec * wf->sample_rate / 1000;
+			const size_t segment_size = wf->frames * sizeof(float);
+			//fout << "input_buf_size: " << input_buf_size
+			//     << " segment_size: " << segment_size << "\n";
 			if (input_buf_size >= segment_size) {
 				obs_log(LOG_INFO,
 					"found %lu bytes, %lu frames in input buffer, need >= %lu, processing",

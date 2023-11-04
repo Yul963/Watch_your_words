@@ -61,7 +61,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	struct pair_audio b = {a, audio->timestamp};
 	wf->audio_buf.push_back(b);
 	//obs_log(LOG_INFO, "timstamp: %llu)",audio->timestamp);
-	if (audio->timestamp <= (wf->start_timestamp + 5000000000)) {
+	if (audio->timestamp <= (wf->start_timestamp + (uint64_t)DELAY_SEC * 1000000000)) {
 		for (size_t c = 0; c < channels; c++) {
 			if (audio->data[c]) {
 				for (size_t i = 0; i < audio->frames; i++) {
@@ -307,9 +307,9 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 					    << std::setfill('0') << std::setw(3)
 					    << time_ms_rem;
 			};
-			format_ts_for_srt(result.start_timestamp_ms);
+			format_ts_for_srt(result.start_timestamp_ms + DELAY_SEC * 1000);
 			output_file << " --> ";
-			format_ts_for_srt(result.end_timestamp_ms);
+			format_ts_for_srt(result.end_timestamp_ms + DELAY_SEC * 1000 - OVERLAP_SIZE_MSEC);
 			output_file << std::endl;
 
 			output_file << str_copy << std::endl;
@@ -361,7 +361,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 
 	wf->vad_enabled = obs_data_get_bool(s, "vad_enabled");
 	wf->caption_to_stream = obs_data_get_bool(s, "caption_to_stream");
-	wf->step_size_msec = BUFFER_SIZE_MSEC;
+	//wf->step_size_msec = BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(s, "subtitle_save_srt");
 	wf->save_only_while_recording = obs_data_get_bool(s, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(s, "rename_file_to_match_recording");
@@ -481,7 +481,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 
 	wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
-	wf->whisper_params.duration_ms = BUFFER_SIZE_MSEC;
+	wf->whisper_params.duration_ms = 3000;
 	wf->whisper_params.language = "ko";
 	wf->whisper_params.initial_prompt = "";
 	wf->whisper_params.n_threads = std::min((int)obs_data_get_int(s, "n_threads"),(int)std::thread::hardware_concurrency());
@@ -519,7 +519,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	wf->sample_rate = audio_output_get_sample_rate(obs_get_audio());
 	wf->frames = (size_t)((float)wf->sample_rate /(1000.0f / (float)BUFFER_SIZE_MSEC));
 	wf->last_num_frames = 0;
-	wf->step_size_msec = BUFFER_SIZE_MSEC;
+	//wf->step_size_msec = BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(settings, "subtitle_save_srt");
 	wf->save_only_while_recording = obs_data_get_bool(settings, "only_while_recording");
 	wf->rename_file_to_match_recording = obs_data_get_bool(settings, "rename_file_to_match_recording");

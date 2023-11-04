@@ -32,6 +32,7 @@
 #include "whisper.h"
 
 #define MT_ obs_module_text
+#define DELAY_SEC 6
 
 inline enum speaker_layout convert_speaker_layout(uint8_t channels)
 {
@@ -93,7 +94,7 @@ struct wyw_source_data {
 	size_t overlap_frames;
 	size_t overlap_ms;
 	size_t last_num_frames;
-	size_t step_size_msec;
+	//size_t step_size_msec;
 	uint64_t start_timestamp_ms;
 	size_t sentence_number;
 
