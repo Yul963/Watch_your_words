@@ -202,7 +202,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			return {DETECTION_RESULT_SILENCE, "", 0, 0};
 		}
 
-		return {DETECTION_RESULT_SPEECH, text_lower, offset_ms - duration_ms, offset_ms};
+		return {DETECTION_RESULT_SPEECH, text_lower, offset_ms - duration_ms, offset_ms, start_timestamp};
 	}
 }
 
@@ -302,10 +302,11 @@ void process_audio_from_buffer(struct wyw_source_data *wf)
 			set_text_callback(wf, inference_result);
 		} else if (inference_result.result == DETECTION_RESULT_SILENCE) {
 			// output inference result to a text source
-			set_text_callback(wf, {inference_result.result, "[silence]", 0, 0});
+			set_text_callback(wf,
+					  {inference_result.result, "[silence]",0, 0, start_timestamp});
 		}
 	} else {
-		set_text_callback(wf, {DETECTION_RESULT_UNKNOWN, "[skip]", 0, 0});
+		set_text_callback(wf, {DETECTION_RESULT_UNKNOWN, "[skip]", 0, 0, start_timestamp});
 	}
 
 	auto end = std::chrono::high_resolution_clock::now();

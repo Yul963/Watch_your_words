@@ -78,6 +78,7 @@ struct DetectionResultWithText {
 	std::string text;
 	uint64_t start_timestamp_ms;
 	uint64_t end_timestamp_ms;
+	uint64_t start_timestamp;
 };
 
 struct pair_audio {
@@ -109,7 +110,7 @@ struct wyw_source_data {
 	float filler_p_threshold;
 	bool do_silence;
 	bool vad_enabled;
-	bool caption_to_stream;
+	//bool caption_to_stream;
 	bool active = false;
 	bool save_srt = false;
 	bool process_while_muted = false;
@@ -117,7 +118,7 @@ struct wyw_source_data {
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
 	std::mutex *text_source_mutex = nullptr;
-
+	std::queue<DetectionResultWithText> output;
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
 	std::string output_file_path = "";
 

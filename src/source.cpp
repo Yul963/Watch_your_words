@@ -35,6 +35,31 @@ bool add_sources_to_list(void *list_property, obs_source_t *source)//자막 출�
 	return true;
 }
 
+void acquire_weak_text_source_ref(struct wyw_source_data *wf)
+{
+	if (!wf->text_source_name) {
+		obs_log(LOG_ERROR, "text_source_name is null");
+		return;
+	}
+
+	std::lock_guard<std::mutex> lock(*wf->text_source_mutex);
+
+	// acquire a weak ref to the new text source
+	obs_source_t *source = obs_get_source_by_name(wf->text_source_name);
+	if (source) {
+		wf->text_source = obs_source_get_weak_source(source);
+		obs_source_release(source);
+		if (!wf->text_source) {
+			obs_log(LOG_ERROR,
+				"failed to get weak source for text source %s",
+				wf->text_source_name);
+		}
+	} else {
+		obs_log(LOG_ERROR, "text source '%s' not found",
+			wf->text_source_name);
+	}
+}
+
  void copy_obs_audio_data(float **dest, float **src, size_t channels)
 {
 	for (int i = 0; i < channels; i++) {
@@ -74,16 +99,19 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			struct pair_audio temp = wf->audio_buf.front();
 			if (temp.timestamp >= start && temp.timestamp <= end) {
 				for (size_t c = 0; c < channels; c++) {
-					for (size_t j = 0; j < wf->frames; j++) {
+					for (size_t j = 0; j < wf->frames;
+					     j++) {
 						sin_val += rate * M_PI * 2.0;
 						if (sin_val > M_PI * 2.0)
 							sin_val -= M_PI * 2.0;
 						double wave = sin(sin_val);
-						temp.data[c][j] = (float)(wave / 100.0);
+						temp.data[c][j] =
+							(float)(wave / 100.0);
 					}
 				}
 			} else if (temp.timestamp > end) {
-				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
+				std::lock_guard<std::mutex> lock(
+					*wf->timestamp_queue_mutex);
 				if (!wf->timestamp_queue.empty()) {
 					edit_timestamp temp =
 						wf->timestamp_queue.front();
@@ -102,7 +130,6 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 		}
 	}
 	
-
 	if (!wf->active) {
 		return audio;
 	}
@@ -127,7 +154,39 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 		info.timestamp = audio->timestamp;
 		circlebuf_push_back(&wf->info_buffer, &info, sizeof(info));
 	}
+	if (!wf->output.empty()) {
+		DetectionResultWithText result = wf->output.front();
+		if (result.start_timestamp <= audio->timestamp - (uint64_t)DELAY_SEC * 1000000000) {
+			if (!wf->text_source_mutex) {
+				obs_log(LOG_ERROR, "text_source_mutex is null");
+				return audio;
+			}
 
+			if (!wf->text_source) {
+				// attempt to acquire a weak ref to the text source if it's yet available
+				acquire_weak_text_source_ref(wf);
+			}
+			std::lock_guard<std::mutex> lock(
+				*wf->text_source_mutex);
+
+			if (!wf->text_source) {
+				obs_log(LOG_ERROR, "text_source is null");
+				return audio;
+			}
+			auto target =
+				obs_weak_source_get_source(wf->text_source);
+			if (!target) {
+				obs_log(LOG_ERROR,
+					"text_source target is null");
+				return audio;
+			}
+			auto text_settings = obs_source_get_settings(target);
+			obs_data_set_string(text_settings, "text", result.text.c_str());
+			obs_source_update(target, text_settings);
+			obs_source_release(target);
+			wf->output.pop();
+		}
+	}
 	return audio;
 }
 
@@ -214,40 +273,83 @@ void wyw_source_destroy(void *data)
 	obs_log(LOG_INFO,"watch-your-words source destroyed.");
 }
 
-void acquire_weak_text_source_ref(struct wyw_source_data *wf)
+#define is_lead_byte(c) \
+	(((c)&0xe0) == 0xc0 || ((c)&0xf0) == 0xe0 || ((c)&0xf8) == 0xf0)
+#define is_trail_byte(c) (((c)&0xc0) == 0x80)
+
+inline int lead_byte_length(const uint8_t c)
 {
-	if (!wf->text_source_name) {
-		obs_log(LOG_ERROR, "text_source_name is null");
-		return;
-	}
-
-	std::lock_guard<std::mutex> lock(*wf->text_source_mutex);
-
-	// acquire a weak ref to the new text source
-	obs_source_t *source = obs_get_source_by_name(wf->text_source_name);
-	if (source) {
-		wf->text_source = obs_source_get_weak_source(source);
-		obs_source_release(source);
-		if (!wf->text_source) {
-			obs_log(LOG_ERROR,
-				"failed to get weak source for text source %s",
-				wf->text_source_name);
-		}
+	if ((c & 0xe0) == 0xc0) {
+		return 2;
+	} else if ((c & 0xf0) == 0xe0) {
+		return 3;
+	} else if ((c & 0xf8) == 0xf0) {
+		return 4;
 	} else {
-		obs_log(LOG_ERROR, "text source '%s' not found",
-			wf->text_source_name);
+		return 1;
 	}
 }
 
-void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &result)
+inline bool is_valid_lead_byte(const uint8_t *c)
 {
-#ifdef _WIN32
-	std::string str_copy = result.text;
-	for (size_t i = 0; i < str_copy.size(); ++i) {
-		if ((str_copy.c_str()[i] & 0xf0) == 0xf0) {
-			str_copy[i] = (str_copy.c_str()[i] & 0x0f) | 0xd0;
+	const int length = lead_byte_length(c[0]);
+	if (length == 1) {
+		return true;
+	}
+	if (length == 2 && is_trail_byte(c[1])) {
+		return true;
+	}
+	if (length == 3 && is_trail_byte(c[1]) && is_trail_byte(c[2])) {
+		return true;
+	}
+	if (length == 4 && is_trail_byte(c[1]) && is_trail_byte(c[2]) &&
+	    is_trail_byte(c[3])) {
+		return true;
+	}
+	return false;
+}
+
+void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &resultIn)
+{
+	DetectionResultWithText result = resultIn;
+	/*
+	uint64_t now = now_ms();
+	if (result.text.empty() || result.result != DETECTION_RESULT_SPEECH) {
+		// check if we should clear the current sub depending on the minimum subtitle duration
+		if ((now - wf->last_sub_render_time) > wf->min_sub_duration) {
+			// clear the current sub, run an empty sub
+			result.text = "";
+		} else {
+			// nothing to do, the incoming sub is empty
+			return;
 		}
 	}
+	wf->last_sub_render_time = now;*/
+#ifdef _WIN32
+	std::stringstream ss;
+	uint8_t *c_str = (uint8_t *)result.text.c_str();
+	for (size_t i = 0; i < result.text.size(); ++i) {
+		if (is_lead_byte(c_str[i])) {
+			if (c_str[i + 1] == 0xff) {
+				c_str[i + 1] = 0x9f;
+			}
+			if (!is_valid_lead_byte(c_str + i)) {
+				c_str[i] = c_str[i] - 0x20;
+			}
+		} else {
+			if (c_str[i] >= 0xf8) {
+				uint8_t buf_[4];
+				buf_[0] = c_str[i] - 0x20;
+				buf_[1] = c_str[i + 1];
+				buf_[2] = c_str[i + 2];
+				buf_[3] = c_str[i + 3];
+				if (is_valid_lead_byte(buf_)) {
+					c_str[i] = c_str[i] - 0x20;
+				}
+			}
+		}
+	}
+	std::string str_copy = (char *)c_str;
 #else
 	std::string str_copy = result.text;
 #endif
@@ -263,14 +365,14 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 		}
 	}
 	wf->token_result.clear();
-
+	/*
 	if (wf->caption_to_stream) {
 		obs_output_t *streaming_output = obs_frontend_get_streaming_output();
 		if (streaming_output) {
 			obs_output_output_caption_text1(streaming_output, str_copy.c_str());
 			obs_output_release(streaming_output);
 		}
-	}
+	}*/
 
 	if (wf->output_file_path != "" && !wf->text_source_name) {
 		// Check if we should save the sentence
@@ -317,31 +419,7 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 			wf->sentence_number++;
 		}
 	} else {
-		if (!wf->text_source_mutex) {
-			obs_log(LOG_ERROR, "text_source_mutex is null");
-			return;
-		}
-
-		if (!wf->text_source) {
-			// attempt to acquire a weak ref to the text source if it's yet available
-			acquire_weak_text_source_ref(wf);
-		}
-
-		std::lock_guard<std::mutex> lock(*wf->text_source_mutex);
-
-		if (!wf->text_source) {
-			obs_log(LOG_ERROR, "text_source is null");
-			return;
-		}
-		auto target = obs_weak_source_get_source(wf->text_source);
-		if (!target) {
-			obs_log(LOG_ERROR, "text_source target is null");
-			return;
-		}
-		auto text_settings = obs_source_get_settings(target);
-		obs_data_set_string(text_settings, "text", str_copy.c_str());
-		obs_source_update(target, text_settings);
-		obs_source_release(target);
+		wf->output.push(result);
 	}
 };
 
@@ -359,7 +437,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->channels = audio_output_get_channels(obs_get_audio());
 
 	wf->vad_enabled = obs_data_get_bool(s, "vad_enabled");
-	wf->caption_to_stream = obs_data_get_bool(s, "caption_to_stream");
+	//wf->caption_to_stream = obs_data_get_bool(s, "caption_to_stream");
 	//wf->step_size_msec = BUFFER_SIZE_MSEC;
 	wf->save_srt = obs_data_get_bool(s, "subtitle_save_srt");
 	// Get the current timestamp using the system clock
@@ -479,12 +557,12 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
 	wf->whisper_params.duration_ms = 3000;
 	wf->whisper_params.language = "ko";
-	wf->whisper_params.initial_prompt = "";
+	wf->whisper_params.initial_prompt = "인터넷 방송";
 	wf->whisper_params.n_threads = std::min((int)obs_data_get_int(s, "n_threads"),(int)std::thread::hardware_concurrency());
 	wf->whisper_params.n_max_text_ctx = 16384;
 	wf->whisper_params.translate = false;
 	wf->whisper_params.no_context =true;
-	wf->whisper_params.single_segment =false; 
+	wf->whisper_params.single_segment =true; 
 	wf->whisper_params.print_special = false;
 	wf->whisper_params.print_progress = false;
 	wf->whisper_params.print_realtime = false;
@@ -493,7 +571,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->whisper_params.thold_pt = (float)obs_data_get_double(s, "thold_pt");
 	wf->whisper_params.thold_ptsum = (float)obs_data_get_double(s, "thold_ptsum");
 	wf->whisper_params.max_len = 0;
-	wf->whisper_params.split_on_word =false;
+	wf->whisper_params.split_on_word =true;
 	wf->whisper_params.max_tokens = (int)obs_data_get_int(s, "max_tokens");
 	wf->whisper_params.speed_up = false;
 	wf->whisper_params.suppress_blank = true;
@@ -611,7 +689,7 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_string(s, "edit_mode","beep");
 
 	obs_data_set_default_bool(s, "vad_enabled", true);
-	obs_data_set_default_bool(s, "caption_to_stream", false);
+	//obs_data_set_default_bool(s, "caption_to_stream", false);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_bool(s, "process_while_muted", false);
@@ -652,7 +730,7 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
-	obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
+	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
 	obs_properties_add_bool(ppts, "process_while_muted", MT_("process_while_muted"));
 	obs_property_t *subs_output = obs_properties_add_list(
 		ppts, "subtitle_sources", MT_("subtitle_sources"),
