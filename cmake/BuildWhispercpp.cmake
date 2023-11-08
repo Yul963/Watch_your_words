@@ -27,9 +27,9 @@ if(WIN32)
     ExternalProject_Add(
       Whispercpp_Build
       DOWNLOAD_EXTRACT_TIMESTAMP true
-      URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
-      #GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
-      #GIT_TAG 7b374c9ac9b9861bb737eec060e4dfa29d229259
+      #URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
+      GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+      GIT_TAG f96e1c5b7865e01fece99f69286d922d949a260d
       BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config ${Whispercpp_BUILD_TYPE}
       BUILD_BYPRODUCTS
       <INSTALL_DIR>/lib/static/${CMAKE_STATIC_LIBRARY_PREFIX}whisper${CMAKE_STATIC_LIBRARY_SUFFIX}
@@ -49,7 +49,9 @@ else()
     ExternalProject_Add(
       Whispercpp_Build
       DOWNLOAD_EXTRACT_TIMESTAMP true
-      URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
+      #URL "https://github.com/ggerganov/whisper.cpp/archive/v${WHISPERCPP_VERSION}.zip"
+      GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+      GIT_TAG f96e1c5b7865e01fece99f69286d922d949a260d
       BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config ${Whispercpp_BUILD_TYPE}
       BUILD_BYPRODUCTS <INSTALL_DIR>/lib/static/${CMAKE_STATIC_LIBRARY_PREFIX}whisper${CMAKE_STATIC_LIBRARY_SUFFIX}
       CMAKE_GENERATOR ${CMAKE_GENERATOR}
