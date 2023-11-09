@@ -60,10 +60,10 @@ void acquire_weak_text_source_ref(struct wyw_source_data *wf)
 	}
 }
 
- void copy_obs_audio_data(float **dest, float **src, size_t channels)
+ void copy_obs_audio_data(float **dest, float **src, size_t channels, size_t frames)
 {
 	for (int i = 0; i < channels; i++) {
-		memcpy(dest[i], src[i], sizeof(float) * 480);
+		memcpy(dest[i], src[i], sizeof(float) * frames);
 	}
 }
 uint64_t start=0, end=0;
@@ -80,9 +80,9 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	}
 	float **a = new float *[channels];
 	for (int i = 0; i < channels; i++) {
-		a[i] = new float[wf->frames];
+		a[i] = new float[audio->frames];
 	}
-	copy_obs_audio_data(a, fdata, channels);
+	copy_obs_audio_data(a, fdata, channels, audio->frames);
 	struct pair_audio b = {a, audio->timestamp};
 	wf->audio_buf.push_back(b);
 	//obs_log(LOG_INFO, "timstamp: %llu)",audio->timestamp);
@@ -99,8 +99,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			struct pair_audio temp = wf->audio_buf.front();
 			if (temp.timestamp >= start && temp.timestamp <= end) {
 				for (size_t c = 0; c < channels; c++) {
-					for (size_t j = 0; j < wf->frames;
-					     j++) {
+					for (size_t j = 0; j < audio->frames; j++) {
 						sin_val += rate * M_PI * 2.0;
 						if (sin_val > M_PI * 2.0)
 							sin_val -= M_PI * 2.0;
@@ -120,7 +119,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 					end = temp.end;
 				}
 			}
-			copy_obs_audio_data(fdata, temp.data, channels);
+			copy_obs_audio_data(fdata, temp.data, channels, audio->frames);
 			//obs_log(LOG_INFO, "timstamp2: %llu)", audio->timestamp);
 			wf->audio_buf.pop_front();
 			for (int i = 0; i < channels; i++) {
@@ -157,33 +156,33 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	if (!wf->output.empty()) {
 		DetectionResultWithText result = wf->output.front();
 		if (result.start_timestamp <= audio->timestamp - (uint64_t)DELAY_SEC * 1000000000) {
-			if (!wf->text_source_mutex) {
-				obs_log(LOG_ERROR, "text_source_mutex is null");
-				return audio;
-			}
+			if (wf->use_text_source) {
+				if (!wf->text_source_mutex) {
+					obs_log(LOG_ERROR, "text_source_mutex is null");
+					return audio;
+				}
 
-			if (!wf->text_source) {
-				// attempt to acquire a weak ref to the text source if it's yet available
-				acquire_weak_text_source_ref(wf);
-			}
-			std::lock_guard<std::mutex> lock(
-				*wf->text_source_mutex);
+				if (!wf->text_source) {
+					// attempt to acquire a weak ref to the text source if it's yet available
+					acquire_weak_text_source_ref(wf);
+				}
+				std::lock_guard<std::mutex> lock(
+					*wf->text_source_mutex);
 
-			if (!wf->text_source) {
-				obs_log(LOG_ERROR, "text_source is null");
-				return audio;
+				if (!wf->text_source) {
+					obs_log(LOG_ERROR, "text_source is null");
+					return audio;
+				}
+				auto target = obs_weak_source_get_source(wf->text_source);
+				if (!target) {
+					obs_log(LOG_ERROR, "text_source target is null");
+					return audio;
+				}
+				auto text_settings = obs_source_get_settings(target);
+				obs_data_set_string(text_settings, "text", result.text.c_str());
+				obs_source_update(target, text_settings);
+				obs_source_release(target);
 			}
-			auto target =
-				obs_weak_source_get_source(wf->text_source);
-			if (!target) {
-				obs_log(LOG_ERROR,
-					"text_source target is null");
-				return audio;
-			}
-			auto text_settings = obs_source_get_settings(target);
-			obs_data_set_string(text_settings, "text", result.text.c_str());
-			obs_source_update(target, text_settings);
-			obs_source_release(target);
 			wf->output.pop();
 		}
 	}
@@ -253,12 +252,12 @@ void wyw_source_destroy(void *data)
 	delete wf->whisper_ctx_mutex;
 	delete wf->wshiper_thread_cv;
 	delete wf->text_source_mutex;
-
+	obs_log(LOG_INFO, "1");
 	delete wf->audio_buf_mutex;
 	delete wf->timestamp_queue_mutex;
-	delete wf->whisper_ctx_mutex;
-	delete wf->wshiper_thread_cv;
-
+	delete wf->edit_mutex;
+	delete wf->edit_thread_cv;
+	obs_log(LOG_INFO, "2");
 	for (; !wf->audio_buf.empty();) {
 		//obs_log(LOG_INFO, "audio_buf emptying.");
 		struct pair_audio temp = wf->audio_buf.front();
@@ -268,7 +267,7 @@ void wyw_source_destroy(void *data)
 		delete temp.data;
 		wf->audio_buf.pop_front();
 	}
-	
+	obs_log(LOG_INFO, "3");
 	bfree(wf);
 	obs_log(LOG_INFO,"watch-your-words source destroyed.");
 }
@@ -453,6 +452,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	    strcmp(new_text_source_name, "(null)") == 0 ||
 	    strcmp(new_text_source_name, "srt_file") == 0 ||
 	    strlen(new_text_source_name) == 0) {
+		wf->use_text_source = false;
 		// new selected text source is not valid, release the old one
 		if (wf->text_source) {
 			if (!wf->text_source_mutex) {
@@ -476,6 +476,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 		}
 	} else {
 		// new selected text source is valid, check if it's different from the old one
+		wf->use_text_source = true;
 		if (wf->text_source_name == nullptr ||
 		    strcmp(new_text_source_name, wf->text_source_name) != 0) {
 			// new text source is different from the old one, release the old one
@@ -689,7 +690,6 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_string(s, "edit_mode","beep");
 
 	obs_data_set_default_bool(s, "vad_enabled", true);
-	//obs_data_set_default_bool(s, "caption_to_stream", false);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_bool(s, "process_while_muted", false);

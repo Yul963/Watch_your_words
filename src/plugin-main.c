@@ -10,10 +10,14 @@ MODULE_EXPORT const char *obs_module_description(void)
 }
 
 extern struct obs_source_info watch_your_words_source;
+extern struct obs_source_info audio_delay;
+extern struct obs_source_info video_delay;
 
 bool obs_module_load(void)
 {
 	obs_register_source(&watch_your_words_source);
+	obs_register_source(&audio_delay);
+	obs_register_source(&video_delay);
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)",
 		PLUGIN_VERSION);
 	return true;

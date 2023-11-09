@@ -110,10 +110,10 @@ struct wyw_source_data {
 	float filler_p_threshold;
 	bool do_silence;
 	bool vad_enabled;
-	//bool caption_to_stream;
 	bool active = false;
 	bool save_srt = false;
 	bool process_while_muted = false;
+	bool use_text_source;
 
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
