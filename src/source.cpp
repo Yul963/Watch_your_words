@@ -224,6 +224,16 @@ void wyw_source_destroy(void *data)
 		wf->edit_thread.join();
 	}
 
+	if (wf->edit_mode) {
+		bfree(wf->edit_mode);
+		wf->edit_mode = nullptr;
+	}
+
+	if (wf->whisper_model_path) {
+		bfree(wf->whisper_model_path);
+		wf->whisper_model_path = nullptr;
+	}
+
 	if (wf->text_source_name) {
 		bfree(wf->text_source_name);
 		wf->text_source_name = nullptr;
@@ -252,12 +262,12 @@ void wyw_source_destroy(void *data)
 	delete wf->whisper_ctx_mutex;
 	delete wf->wshiper_thread_cv;
 	delete wf->text_source_mutex;
-	obs_log(LOG_INFO, "1");
+
 	delete wf->audio_buf_mutex;
 	delete wf->timestamp_queue_mutex;
 	delete wf->edit_mutex;
 	delete wf->edit_thread_cv;
-	obs_log(LOG_INFO, "2");
+
 	for (; !wf->audio_buf.empty();) {
 		//obs_log(LOG_INFO, "audio_buf emptying.");
 		struct pair_audio temp = wf->audio_buf.front();
@@ -267,8 +277,7 @@ void wyw_source_destroy(void *data)
 		delete temp.data;
 		wf->audio_buf.pop_front();
 	}
-	obs_log(LOG_INFO, "3");
-	bfree(wf);
+	delete wf;
 	obs_log(LOG_INFO,"watch-your-words source destroyed.");
 }
 
