@@ -3,6 +3,7 @@
 #include "whisper-processing.h"
 #include "audio-processing.h"
 #include "model-utils/model-downloader.h"
+#include "frequency-utils/frequency-dock.h"
 
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832795
@@ -763,6 +764,8 @@ obs_properties_t *wyw_source_properties(void *data)
 			obs_property_set_visible(obs_properties_get(props, "subtitle_save_srt"),show_hide);
 			return true;
 		});
+
+	obs_properties_add_button(ppts, "dock_button", "STATISTICS", buttonClicked);
 
 	// Add a list of available whisper models to download
 	obs_property_t *whisper_models_list = obs_properties_add_list(ppts, "whisper_model_path", MT_("whisper_model"),
