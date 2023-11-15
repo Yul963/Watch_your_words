@@ -1,6 +1,32 @@
 #include "frequency-dock.h"
 
 QDockWidget *myDockWidget = nullptr;
+QTextBrowser *textBrowser = nullptr;
+QPushButton *toggleButton = nullptr;
+
+enum PageType { PUBLIC_PAGE, PRIVATE_PAGE };
+
+PageType currentPage = PUBLIC_PAGE;
+
+void updateDockContent()
+{
+	if (textBrowser) {
+		switch (currentPage) {
+		case PUBLIC_PAGE:
+			textBrowser->setPlainText("This is public page");
+			break;
+		case PRIVATE_PAGE:
+			textBrowser->setPlainText("This is private page");
+			break;
+		}
+	}
+}
+
+void togglePage()
+{
+	currentPage = (currentPage == PUBLIC_PAGE) ? PRIVATE_PAGE : PUBLIC_PAGE;
+	updateDockContent();
+}
 
 bool buttonClicked(obs_properties_t *props, obs_property_t *property,
 		   void *data)
@@ -10,23 +36,29 @@ bool buttonClicked(obs_properties_t *props, obs_property_t *property,
 	UNUSED_PARAMETER(data);
 
 	if (!myDockWidget) {
-		// Create the QTextEdit widget
-		QTextEdit *textEdit = new QTextEdit("Hello, World!");
-
-		// Create the QDockWidget
-		myDockWidget = new QDockWidget("STATISTICS");
-		myDockWidget->setWidget(textEdit);
-
-		// Add the QDockWidget to the UI's Docks menu
+		myDockWidget = new QDockWidget("Statistics");
 		obs_frontend_add_dock(myDockWidget);
 
-		// Show the QDockWidget
+		textBrowser = new QTextBrowser;
+		textBrowser->setPlainText("This is public page");
+		myDockWidget->setWidget(textBrowser);
+
+		toggleButton = new QPushButton("Public / Private");
+		QObject::connect(toggleButton, &QPushButton::clicked,
+				 togglePage);
+
+		QVBoxLayout *layout = new QVBoxLayout;
+		layout->addWidget(textBrowser);
+		layout->addWidget(toggleButton);
+
+		QWidget *centralWidget = new QWidget;
+		centralWidget->setLayout(layout);
+		myDockWidget->setWidget(centralWidget);
+
 		myDockWidget->show();
-	} else {
-		// If the QDockWidget is already created, toggle its visibility
-		myDockWidget->setVisible(!myDockWidget->isVisible());
 	}
 
-	// Returning false means that the UI properties do not need to be rebuilt
+	updateDockContent();
+
 	return false;
 }

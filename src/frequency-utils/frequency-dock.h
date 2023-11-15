@@ -5,7 +5,9 @@
 #include "obs-properties.h"
 #include "util/c99defs.h"
 #include <QDockWidget>
-#include <QTextEdit>
+#include <QTextBrowser>
+#include <QPushButton>
+#include <QVBoxLayout>
 
 // Global pointer for the QDockWidget
 extern QDockWidget *myDockWidget;
