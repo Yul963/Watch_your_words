@@ -117,6 +117,7 @@ struct wyw_source_data {
 
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
+	char *broadcast_type = nullptr;
 	std::mutex *text_source_mutex = nullptr;
 	std::queue<DetectionResultWithText> output;
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
