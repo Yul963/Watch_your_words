@@ -62,7 +62,7 @@ void edit_loop(struct wyw_source_data *wf)
 			size_t input_buf_size = 0;
 			{
 				std::lock_guard<std::mutex> lock(*wf->audio_buf_mutex);
-				
+
 			}
 			if (wf->audio_buf.empty())
 				break;
