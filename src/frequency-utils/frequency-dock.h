@@ -8,6 +8,9 @@
 #include <QTextBrowser>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QFile>
+#include <QTextStream>
+#include <QDir>
 
 // Global pointer for the QDockWidget
 extern QDockWidget *myDockWidget;
