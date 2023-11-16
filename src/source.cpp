@@ -3,6 +3,7 @@
 #include "whisper-processing.h"
 #include "audio-processing.h"
 #include "model-utils/model-downloader.h"
+#include "frequency-utils/frequency-dock.h"
 
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832795
@@ -461,11 +462,13 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->start_timestamp_ms = now_ms();
 	wf->sentence_number = 1;
 	wf->process_while_muted = obs_data_get_bool(s, "process_while_muted");
+	wf->broadcast_type = bstrdup(obs_data_get_string(s, "broadcast_type"));
+	obs_log(LOG_INFO, "broadcast_type updated to %s", wf->broadcast_type);
 	bool current_censor = wf->censor;
 	wf->censor = obs_data_get_bool(s, "censor");
 	if (!current_censor && wf->censor)
 		started = false;
-	else if (current_censor && !wf->censor) {//오디오 처리 중 false로 바꾸면 오류나는듯
+	else if (current_censor && !wf->censor) {
 		std::lock_guard<std::mutex> lockbuf(*wf->audio_buf_mutex);
 		for (; !wf->audio_buf.empty();) {
 			struct pair_audio temp = wf->audio_buf.front();
@@ -675,6 +678,15 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	} else {
 		wf->text_source_name = nullptr;
 	}
+
+	const char *broadcast_type =
+		obs_data_get_string(settings, "broadcast_type");
+	if (broadcast_type != nullptr) {
+		wf->broadcast_type = bstrdup(broadcast_type);
+	} else {
+		wf->broadcast_type = nullptr;
+	}
+
 	obs_log(LOG_INFO, "watch_your_words: clear paths and whisper context");
 	wf->output_file_path = std::string("");
 	wf->whisper_model_path = nullptr;
@@ -724,6 +736,7 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_bool(s, "vad_enabled", true);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
+	obs_data_set_default_string(s, "broadcast_type", "none");
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
 	obs_data_set_default_bool(s, "censor", true);
@@ -788,6 +801,18 @@ obs_properties_t *wyw_source_properties(void *data)
 			obs_property_set_visible(obs_properties_get(props, "subtitle_save_srt"),show_hide);
 			return true;
 		});
+
+	obs_property_t *broadcast_type = obs_properties_add_list(
+		ppts, "broadcast_type", MT_("broadcast_type"),
+		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+
+	obs_property_list_add_string(broadcast_type, MT_("none"), "none");
+	obs_property_list_add_string(broadcast_type, MT_("sleep"), "sleep");
+	obs_property_list_add_string(broadcast_type, MT_("cook"), "cook");
+	obs_property_list_add_string(broadcast_type, MT_("game"), "game");
+
+
+	obs_properties_add_button(ppts, "dock_button", "STATISTICS", buttonClicked);
 
 	// Add a list of available whisper models to download
 	obs_property_t *whisper_models_list = obs_properties_add_list(ppts, "whisper_model_path", MT_("whisper_model"),
