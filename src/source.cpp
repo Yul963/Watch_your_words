@@ -252,6 +252,11 @@ void wyw_source_destroy(void *data)
 		audio_resampler_destroy(wf->resampler);
 	}
 
+	if (wf->broadcast_type) {
+		bfree(wf->broadcast_type);
+		wf->broadcast_type = nullptr;
+	}
+
 	{
 		std::lock_guard<std::mutex> lockbuf(*wf->whisper_buf_mutex);
 		bfree(wf->copy_buffers[0]);
@@ -462,6 +467,10 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->start_timestamp_ms = now_ms();
 	wf->sentence_number = 1;
 	wf->process_while_muted = obs_data_get_bool(s, "process_while_muted");
+	if (wf->broadcast_type) {
+		bfree(wf->broadcast_type);
+		wf->broadcast_type = nullptr;
+	}
 	wf->broadcast_type = bstrdup(obs_data_get_string(s, "broadcast_type"));
 	obs_log(LOG_INFO, "broadcast_type updated to %s", wf->broadcast_type);
 	bool current_censor = wf->censor;
@@ -558,8 +567,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 		shutdown_whisper_thread(wf);
 		wf->whisper_model_path = bstrdup(new_model_path.c_str());
 
-		std::string model_file_found =
-			find_model_file(wf->whisper_model_path);
+		std::string model_file_found = find_model_file(wf->whisper_model_path);
 
 		if (model_file_found == "") {
 			obs_log(LOG_ERROR, "Whisper model does not exist");
