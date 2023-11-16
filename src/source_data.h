@@ -114,6 +114,7 @@ struct wyw_source_data {
 	bool save_srt = false;
 	bool process_while_muted = false;
 	bool use_text_source;
+	bool censor;
 
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
