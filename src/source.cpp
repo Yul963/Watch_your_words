@@ -86,7 +86,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	struct pair_audio b = {a, audio->timestamp};
 	wf->audio_buf.push_back(b);
 	//obs_log(LOG_INFO, "timstamp: %llu)",audio->timestamp);
-	if (audio->timestamp <= (wf->start_timestamp + (uint64_t)DELAY_SEC * 1000000000)) {
+	if (wf->censor && (audio->timestamp <= (wf->start_timestamp + (uint64_t)DELAY_SEC * 1000000000))) {
 		for (size_t c = 0; c < channels; c++) {
 			if (audio->data[c]) {
 				for (size_t i = 0; i < audio->frames; i++) {
@@ -100,27 +100,27 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			if (temp.timestamp >= start && temp.timestamp <= end) {
 				for (size_t c = 0; c < channels; c++) {
 					for (size_t j = 0; j < audio->frames; j++) {
-						sin_val += rate * M_PI * 2.0;
-						if (sin_val > M_PI * 2.0)
-							sin_val -= M_PI * 2.0;
-						double wave = sin(sin_val);
-						temp.data[c][j] =
-							(float)(wave / 100.0);
+						if (strcmp(wf->edit_mode, "mute") == 0) {
+							temp.data[c][j] = 0.f;
+						} else if (strcmp(wf->edit_mode, "beep") == 0) {
+							sin_val += rate * M_PI * 2.0;
+							if (sin_val > M_PI * 2.0)
+								sin_val -= M_PI * 2.0;
+							double wave = sin(sin_val);
+							temp.data[c][j] = (float)(wave / 100.0);
+						}
 					}
 				}
 			} else if (temp.timestamp > end) {
-				std::lock_guard<std::mutex> lock(
-					*wf->timestamp_queue_mutex);
+				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
 				if (!wf->timestamp_queue.empty()) {
-					edit_timestamp temp =
-						wf->timestamp_queue.front();
+					edit_timestamp temp = wf->timestamp_queue.front();
 					wf->timestamp_queue.pop();
 					start = temp.start;
 					end = temp.end;
 				}
 			}
 			copy_obs_audio_data(fdata, temp.data, channels, audio->frames);
-			//obs_log(LOG_INFO, "timstamp2: %llu)", audio->timestamp);
 			wf->audio_buf.pop_front();
 			for (int i = 0; i < channels; i++) {
 				delete temp.data[i];
@@ -128,7 +128,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 			delete temp.data;
 		}
 	}
-	
+
 	if (!wf->active) {
 		return audio;
 	}
@@ -146,8 +146,12 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 
 	{
 		std::lock_guard<std::mutex> lock(*wf->whisper_buf_mutex);
-		for (size_t c = 0; c < wf->channels; c++)
-			circlebuf_push_back(&wf->input_buffers[c], wf->audio_buf.back().data[c], audio->frames * sizeof(float));
+		for (size_t c = 0; c < wf->channels; c++) {
+			if (wf->censor)
+				circlebuf_push_back(&wf->input_buffers[c], wf->audio_buf.back().data[c], audio->frames * sizeof(float));
+			else
+				circlebuf_push_back(&wf->input_buffers[c], fdata[c], audio->frames * sizeof(float));
+		}
 		struct watch_your_words_audio_info info = {0};
 		info.frames = audio->frames;
 		info.timestamp = audio->timestamp;
@@ -155,7 +159,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	}
 	if (!wf->output.empty()) {
 		DetectionResultWithText result = wf->output.front();
-		if (result.start_timestamp <= audio->timestamp - (uint64_t)DELAY_SEC * 1000000000) {
+		if (!wf->censor || result.start_timestamp <= audio->timestamp - (uint64_t)DELAY_SEC * 1000000000) {
 			if (wf->use_text_source) {
 				if (!wf->text_source_mutex) {
 					obs_log(LOG_ERROR, "text_source_mutex is null");
@@ -166,8 +170,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 					// attempt to acquire a weak ref to the text source if it's yet available
 					acquire_weak_text_source_ref(wf);
 				}
-				std::lock_guard<std::mutex> lock(
-					*wf->text_source_mutex);
+				std::lock_guard<std::mutex> lock(*wf->text_source_mutex);
 
 				if (!wf->text_source) {
 					obs_log(LOG_ERROR, "text_source is null");
@@ -262,7 +265,7 @@ void wyw_source_destroy(void *data)
 	delete wf->whisper_ctx_mutex;
 	delete wf->wshiper_thread_cv;
 	delete wf->text_source_mutex;
-
+	
 	delete wf->audio_buf_mutex;
 	delete wf->timestamp_queue_mutex;
 	delete wf->edit_mutex;
@@ -416,9 +419,15 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 					    << std::setfill('0') << std::setw(3)
 					    << time_ms_rem;
 			};
-			format_ts_for_srt(result.start_timestamp_ms + DELAY_SEC * 1000);
+			uint64_t delay_ms;
+			if (wf->censor) {
+				delay_ms = DELAY_SEC * 1000;
+			} else {
+				delay_ms = 0;
+			}
+			format_ts_for_srt(result.start_timestamp_ms + delay_ms);
 			output_file << " --> ";
-			format_ts_for_srt(result.end_timestamp_ms + DELAY_SEC * 1000 - OVERLAP_SIZE_MSEC);
+			format_ts_for_srt(result.end_timestamp_ms + delay_ms - OVERLAP_SIZE_MSEC);
 			output_file << std::endl;
 
 			output_file << str_copy << std::endl;
@@ -452,6 +461,20 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->start_timestamp_ms = now_ms();
 	wf->sentence_number = 1;
 	wf->process_while_muted = obs_data_get_bool(s, "process_while_muted");
+	bool current_censor = wf->censor;
+	wf->censor = obs_data_get_bool(s, "censor");
+	if (!current_censor && wf->censor)
+		started = false;
+	else if (current_censor && !wf->censor) {//오디오 처리 중 false로 바꾸면 오류나는듯
+		std::lock_guard<std::mutex> lockbuf(*wf->audio_buf_mutex);
+		for (; !wf->audio_buf.empty();) {
+			struct pair_audio temp = wf->audio_buf.front();
+			for (int i = 0; i < wf->channels; i++)
+				delete temp.data[i];
+			delete temp.data;
+			wf->audio_buf.pop_front();
+		}
+	}
 
 	const char *new_text_source_name = obs_data_get_string(s, "subtitle_sources");
 	obs_weak_source_t *old_weak_text_source = NULL;
@@ -703,6 +726,7 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
+	obs_data_set_default_bool(s, "censor", true);
 
 	// Whisper parameters
 	obs_data_set_default_int(s, "whisper_sampling_method", WHISPER_SAMPLING_BEAM_SEARCH);
@@ -741,6 +765,7 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
 	obs_properties_add_bool(ppts, "process_while_muted", MT_("process_while_muted"));
+	obs_properties_add_bool(ppts, "censor", MT_("censor_with_delay"));
 	obs_property_t *subs_output = obs_properties_add_list(
 		ppts, "subtitle_sources", MT_("subtitle_sources"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
