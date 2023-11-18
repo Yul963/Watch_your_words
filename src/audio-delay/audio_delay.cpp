@@ -84,7 +84,7 @@ void wyw_audio_delay_destroy(void *data)
 		wf->audio_buf.pop_front();
 	}
 	
-	bfree(wf);
+	delete wf;
 	obs_log(LOG_INFO,"watch-your-words source destroyed.");
 }
 
