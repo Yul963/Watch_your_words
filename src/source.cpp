@@ -786,15 +786,27 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
 	obs_properties_add_bool(ppts, "process_while_muted", MT_("process_while_muted"));
-	obs_properties_add_bool(ppts, "censor", MT_("censor_with_delay"));
+	obs_property_t *censor_output = obs_properties_add_bool(ppts, "censor", MT_("censor_with_delay"));
+	obs_property_t *edit_list = obs_properties_add_list(
+		ppts, "edit_mode", MT_("edit mode"), OBS_COMBO_TYPE_LIST,
+		OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(edit_list, "mute", "mute");
+	obs_property_list_add_string(edit_list, "beep", "beep");
+	obs_property_set_modified_callback(
+		censor_output,[](obs_properties_t *props, obs_property_t *property,
+		   obs_data_t *settings) {
+			UNUSED_PARAMETER(property);
+			const bool show_hide = obs_data_get_bool(settings, "censor");
+			obs_property_set_visible(obs_properties_get(props, "edit_mode"),show_hide);
+			return true;
+		});
+	
 	obs_property_t *subs_output = obs_properties_add_list(
 		ppts, "subtitle_sources", MT_("subtitle_sources"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 
-	obs_property_list_add_string(subs_output, MT_("none_no_output"),
-				     "none");
-	obs_property_list_add_string(subs_output, MT_("srt_file_output"),
-				     "srt_file");
+	obs_property_list_add_string(subs_output, MT_("none_no_output"),"none");
+	obs_property_list_add_string(subs_output, MT_("srt_file_output"),"srt_file");
 	// Add text sources
 	obs_enum_sources(add_sources_to_list, subs_output);
 
@@ -836,12 +848,6 @@ obs_properties_t *wyw_source_properties(void *data)
 	obs_property_list_add_string(whisper_models_list, "Small Quantized 181Mb","models/ggml-small-q5_1.bin");
 	obs_property_list_add_string(whisper_models_list, "Medium Quantized 514Mb","models/ggml-medium-q5_0.bin");
 	obs_property_list_add_string(whisper_models_list, "Large Quantized 1Gb","models/ggml-large-q5_0.bin");
-
-	obs_property_t *edit_list = obs_properties_add_list(ppts, "edit_mode", MT_("edit mode"),
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-
-	obs_property_list_add_string(edit_list, "mute","mute");
-	obs_property_list_add_string(edit_list, "beep","beep");
 
 	obs_properties_t *whisper_params_group = obs_properties_create();
 	obs_properties_add_group(ppts, "whisper_params_group", MT_("whisper_parameters"), OBS_GROUP_NORMAL, whisper_params_group);
