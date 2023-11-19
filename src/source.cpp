@@ -893,15 +893,11 @@ void wyw_source_deactivate(void *data)
 	wf->active = false;
 }
 
-void getjson(void *data)
+void getjson(void *data, char *jsonstring)
 {
 
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
-	ifstream ifs("test.json");
-	if (!ifs.is_open()) {
-		throw runtime_error("failed to open the file");
-	}
-	string json((istreambuf_iterator<char>(ifs)),(istreambuf_iterator<char>()));
+	std::string json = (std::string)jsonstring;
 
 	Document doc;
 	doc.Parse(json.c_str());
