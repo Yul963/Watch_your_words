@@ -136,7 +136,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 			sentence_p += p;
 			bool eot = token.id >= whisper_token_eot(wf->whisper_context);
 			const char *txt = whisper_full_get_token_text(wf->whisper_context, n_segment, j);
-
+			
 			if (!eot) {
 				word1 += txt;
 				if (word1.empty() || word1[0] == '.') {
@@ -146,7 +146,7 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 				if (word2.empty()) {
 					word2 += word1;
 					word1.clear();
-					word_t0 = (token.t1 - 30) > 0 ? (token.t1 - 30) : 0;
+					word_t0 = token.t0;
 					word_t1 = token.t1;
 				} else if (word1[0] == ' ') {
 					edit.emplace_back(
@@ -158,12 +158,13 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 					word2.clear();
 
 					word2 += word1;
-					word_t0 = (token.t1 - 30) > 0? (token.t1 - 30): 0;
+					word_t0 = token.t0;
 					word_t1 = token.t1;
 					word1.clear();
 				}
 				word2 += word1;
-				word_t1 = token.t0;
+				if (token.t1 != 299)
+					word_t1 = token.t1;
 				word1.clear();
 			}
 			if ((n_tokens - 1) == j) {

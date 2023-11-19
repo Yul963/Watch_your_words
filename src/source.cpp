@@ -4,6 +4,7 @@
 #include "audio-processing.h"
 #include "model-utils/model-downloader.h"
 #include "frequency-utils/frequency-dock.h"
+#include "rapidjson/document.h"
 
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832795
@@ -343,7 +344,6 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 	}
 	wf->last_sub_render_time = now;*/
 #ifdef _WIN32
-	std::stringstream ss;
 	uint8_t *c_str = (uint8_t *)result.text.c_str();
 	for (size_t i = 0; i < result.text.size(); ++i) {
 		if (is_lead_byte(c_str[i])) {
@@ -731,18 +731,13 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	return wf;
 }
 
-struct obs_source_frame *wyw_source_filter_video(void *data, struct obs_source_frame *frame)
-{
-	return frame;
-}
-
 void wyw_source_defaults(obs_data_t *s) {
 	obs_log(LOG_INFO, "watch_your_words_defaults");
 
 	obs_data_set_default_string(s, "edit_mode","beep");
 
 	obs_data_set_default_bool(s, "vad_enabled", true);
-	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-medium-q5_0.bin");
+	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-small-q5_1.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_string(s, "broadcast_type", "none");
 	obs_data_set_default_bool(s, "process_while_muted", false);
