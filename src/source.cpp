@@ -786,6 +786,9 @@ obs_properties_t *wyw_source_properties(void *data)
 		},
 		wf);
 
+	obs_properties_add_path(ppts, "ban_list_from_json", MT_("ban_list_from_json"), OBS_PATH_FILE, "JSON (*.json)", NULL);
+	obs_properties_add_text(ppts, "ban_list_fron_string", MT_("ban_list_fron_string"), OBS_TEXT_MULTILINE);
+
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
