@@ -51,6 +51,10 @@ endif()
 include(cmake/BuildWhispercpp.cmake)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Whispercpp)
 
+include(cmake/BuildRapidJSON.cmake)
+include_directories(${RAPIDJSON_INCLUDE_DIR})
+add_dependencies(${CMAKE_PROJECT_NAME} rapidjson)
+
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp src/audio-processing.cpp
