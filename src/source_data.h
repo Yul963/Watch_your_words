@@ -12,6 +12,7 @@
 #include <string>
 #include <iostream>
 #include <cctype>
+#include <time.h>
 
 #include <util/circlebuf.h>
 #include <util/darray.h>
@@ -146,6 +147,9 @@ struct wyw_source_data {
 	uint64_t start_timestamp;
 	//struct obs_source_frame start_video_data;
 	std::vector<std::string> banlist;
+
+	std::int16_t normalcnt;
+	std::vector<std::int16_t> bancnt;
 };
 
 struct watch_your_words_audio_info {

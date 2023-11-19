@@ -370,9 +370,14 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
+	int i = 0;
 	for (std::string &word : wf->banlist) {
-		for (edit_timestamp &temp : wf->token_result) { 
+		for (edit_timestamp &temp : wf->token_result) {
+			if (i == 0){
+				wf->normalcnt += 1;
+			}
 			if (temp.text.find(word) != std::string::npos) {
+				wf->bancnt[i] += 1;
 				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
 				wf->timestamp_queue.push(temp);
 				uint64_t a = (temp.end - temp.start);
@@ -380,6 +385,7 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 					"edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu", temp.start, temp.end, word.c_str(), a);
 			}
 		}
+		i++;
 	}
 	wf->token_result.clear();
 	/*
@@ -887,4 +893,44 @@ void wyw_source_deactivate(void *data)
 	struct wyw_source_data *wf = static_cast<struct wyw_source_data *>(data);
 	obs_log(LOG_INFO, "watch_your_words filter deactivated");
 	wf->active = false;
+}
+
+
+void wyw_frequency_write(struct wyw_source_data *wf)
+{
+	std::vector<std::string> bnd = wf->banlist;
+	std::vector<std::int16_t> cnt = wf->bancnt;
+	std::vector<float> ps;
+
+	for (int i = 0; i < cnt.size(); i++) {
+		ps[i] = (float)cnt[i] / (float)(wf->normalcnt);
+	}
+	int i = 0;
+	time_t cTime = time(NULL);
+	struct tm *pLocal = localtime(&cTime);
+	std::ofstream writeable;
+	char *path = obs_frontend_get_current_record_output_path();
+	std::string fname = *path + "/result.txt";
+	writeable.open(fname);
+	if (!writeable.is_open()) {
+		//fileopen err
+		return;
+	}
+
+	std::string tmp;
+	char buf[50];
+	sprintf(buf, "%04d-%02d-%02d  %02d:%02d\n", pLocal->tm_year + 1900,
+		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
+		pLocal->tm_min, pLocal->tm_sec);
+	writeable.write(buf, 50);
+
+	while (i < bnd.size()) {
+		tmp = bnd[i] + " ";
+		sprintf(buf, "%.2f", ps[i] * 100);
+		std::string pers = buf;
+		pers += "%%\n";
+		writeable.write(tmp.c_str(), tmp.length());
+		writeable.write(pers.c_str(), pers.length());
+	}
+	writeable.close();
 }
