@@ -31,6 +31,7 @@
 #include <filesystem>
 
 #include "whisper.h"
+#include "rapidjson/document.h"
 
 #define MT_ obs_module_text
 #define DELAY_SEC 6
@@ -147,6 +148,8 @@ struct wyw_source_data {
 	uint64_t start_timestamp;
 	//struct obs_source_frame start_video_data;
 	std::vector<std::string> banlist;
+
+	std::vector<std::vector<std::string>> bantext;
 
 	std::int16_t normalcnt;
 	std::vector<std::int16_t> bancnt;

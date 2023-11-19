@@ -19,6 +19,9 @@ blog(level, "[word filter: '%s'] " format, \
 
 bool started;
 
+using namespace rapidjson;
+using namespace std;
+
 inline uint64_t now_ms()
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -890,9 +893,35 @@ void wyw_source_deactivate(void *data)
 	wf->active = false;
 }
 
-
-void wyw_frequency_write(struct wyw_source_data *wf)
+void getjson(void *data)
 {
+
+	struct wyw_source_data *wf = (struct wyw_source_data *)data;
+	ifstream ifs("test.json");
+	if (!ifs.is_open()) {
+		throw runtime_error("failed to open the file");
+	}
+	string json((istreambuf_iterator<char>(ifs)),(istreambuf_iterator<char>()));
+
+	Document doc;
+	doc.Parse(json.c_str());
+	int i,j;
+	std::vector<std::string> temp;
+	Value &word = doc["ban"];
+	for (i = 0; i < word.Size(); i++) {
+		wf->banlist.push_back(word[i].GetString());
+		Value &list = doc["ban"][i][1];
+		for (j = 0; j < list.Size(); j++) {
+			temp.push_back(list.GetString());
+		}
+		wf->bantext.push_back(temp);
+	}
+
+}
+
+void wyw_frequency_write(void *data)
+{
+	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 	std::vector<std::string> bnd = wf->banlist;
 	std::vector<std::int16_t> cnt = wf->bancnt;
 	std::vector<float> ps;
