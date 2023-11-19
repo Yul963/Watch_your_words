@@ -735,7 +735,9 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 					std::string srt_file_name = recording_file_name + ".srt";
 					std::rename(wf_->output_file_path.c_str(), srt_file_name.c_str());
 					obs_log(LOG_INFO, "srt_file_name is %s", srt_file_name.c_str());
-				}}},wf);
+				}
+				wyw_frequency_write(wf_);
+			}},wf);
 	//obs_log(LOG_INFO, "watch-your-words source created.");
 	return wf;
 }
