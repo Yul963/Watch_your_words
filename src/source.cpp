@@ -71,7 +71,7 @@ void acquire_weak_text_source_ref(struct wyw_source_data *wf)
 		memcpy(dest[i], src[i], sizeof(float) * frames);
 	}
 }
-uint64_t start=0, end=0;
+uint64_t start=0, end2=0;
 double sin_val = 0.0;
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
@@ -102,7 +102,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	} else {
 		if (!wf->audio_buf.empty()) {
 			struct pair_audio temp = wf->audio_buf.front();
-			if (temp.timestamp >= start && temp.timestamp <= end) {
+			if (temp.timestamp >= start && temp.timestamp <= end2) {
 				for (size_t c = 0; c < channels; c++) {
 					for (size_t j = 0; j < audio->frames; j++) {
 						if (strcmp(wf->edit_mode, "mute") == 0) {
@@ -116,13 +116,13 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 						}
 					}
 				}
-			} else if (temp.timestamp > end) {
+			} else if (temp.timestamp > end2) {
 				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
 				if (!wf->timestamp_queue.empty()) {
 					edit_timestamp temp = wf->timestamp_queue.front();
 					wf->timestamp_queue.pop();
 					start = temp.start;
-					end = temp.end;
+					end2 = temp.end;
 				}
 			}
 			copy_obs_audio_data(fdata, temp.data, channels, audio->frames);
@@ -524,7 +524,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 		if (strcmp(new_text_source_name, "srt_file") == 0) {
 			// set the output file path
 			std::string current_path = obs_frontend_get_current_record_output_path();
-			std::string tmp_path = "tmp.srt";
+			std::string tmp_path = "/tmp.srt";
 			wf->output_file_path = current_path + tmp_path;
 		}
 	} else {
@@ -920,6 +920,15 @@ void getjson(void *data, char *jsonstring)
 
 }
 
+void mkfile(std::string fname)
+{
+	fstream base(fname, ios::out);
+	base << "\{\"key\":\"stat\",\"stat\" : [ \"2000-01-01 01:01\"]\}"
+	     << endl;
+	base.close();
+	return;
+}
+
 void wyw_frequency_write(void *data)
 {
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
@@ -933,29 +942,112 @@ void wyw_frequency_write(void *data)
 	int i = 0;
 	time_t cTime = time(NULL);
 	struct tm *pLocal = localtime(&cTime);
-	std::ofstream writeable;
-	char *path = obs_frontend_get_current_record_output_path();
-	std::string fname = *path + "/result.txt";
-	writeable.open(fname);
+	std::fstream writeable;
+	std::string current_path = obs_frontend_get_current_record_output_path();
+	std::string result_path = "/result.txt";
+	std::string fname = current_path + result_path;
+	obs_log(LOG_INFO, "Recording stopped. write %s.", fname.c_str());
+	writeable.open(fname, ios::in);
+	if (!writeable.is_open()) {
+		mkfile(fname);
+	} else {
+		writeable.close();
+	}
+	writeable.open(fname, ios::app);
 	if (!writeable.is_open()) {
 		//fileopen err
 		return;
 	}
 
+	writeable.seekp(-2, ios::end);
 	std::string tmp;
 	char buf[50];
-	sprintf(buf, "%04d-%02d-%02d  %02d:%02d\n", pLocal->tm_year + 1900,
+	sprintf(buf, ",\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
 		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
-		pLocal->tm_min, pLocal->tm_sec);
-	writeable.write(buf, 50);
+		pLocal->tm_min);
+	tmp = (std::string)buf;
+	writeable.write(tmp.c_str(), tmp.size());
 
 	while (i < bnd.size()) {
-		tmp = bnd[i] + " ";
-		sprintf(buf, "%.2f", ps[i] * 100);
-		std::string pers = buf;
-		pers += "%%\n";
-		writeable.write(tmp.c_str(), tmp.length());
-		writeable.write(pers.c_str(), pers.length());
+		tmp = ",\"";
+		tmp.append(bnd[i]).append("\"");
+		sprintf(buf, ",\"%.2f", ps[i] * 100);
+		std::string pers = (std::string)buf;
+		pers.append("%%\"");
+		writeable.write(tmp.c_str(), tmp.size());
+		writeable.write(pers.c_str(), pers.size());
+		i++;
 	}
+
+	writeable.write("]}", 2);
 	writeable.close();
+
+}
+//example
+//{
+//	"key" : "stat"
+//	"stat" : [
+//	"2000-01-01",
+//	"씨발","21%"
+//	]
+//}
+//
+
+
+
+
+void daystate(std::string date)
+{
+	std::vector<std::string> banname;
+	std::vector<float> freq;
+	std::ifstream readable;
+	char *path = obs_frontend_get_current_record_output_path();
+	std::string fname = *path + "/stat.json";
+	std::string json;
+	readable.open(fname);
+	if (!readable.is_open())
+	{
+		//fileopen err
+		return;
+	}
+
+	readable.seekg(0, std::ios::end);
+	int size = readable.tellg();
+	json.resize(size);
+	readable.seekg(0, std::ios::beg);
+	readable.read(&json[0], size);
+
+	Document doc;
+	doc.Parse(json.c_str());
+
+	fstream write;
+	write.open(date, ios::out);
+	const Value &stat = doc["stat"];
+	for (SizeType i = 0; i < stat.Size(); i++) {
+		const Value &point = stat[i];
+		if (date == point.GetString()) {
+			write.write(date.c_str(), date.size());
+			i++;
+			while (strcmp(stat[i].GetString(), "end") == 0) {
+				banname.push_back(stat[++i].GetString());
+				std::string data = stat[++i].GetString();
+				auto percentSymbolIterator = std::find(
+					data.begin(), data.end(), '%');
+				if (percentSymbolIterator != data.end()) {
+					data.erase(percentSymbolIterator);
+				}
+				float result = std::stod(data);
+				freq.push_back(result);
+			}
+		}
+	}
+
+	return;
+}
+
+
+
+void monstate()
+{
+
 }
