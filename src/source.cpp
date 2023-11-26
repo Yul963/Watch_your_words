@@ -373,8 +373,9 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
-	int i = 0;
+	std::int16_t i = 0;
 	for (std::string &word : wf->banlist) {
+		i = 0;
 		for (edit_timestamp &temp : wf->token_result) {
 			if (i == 0){
 				wf->normalcnt += 1;
@@ -465,6 +466,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 		obs_data_t *string = obs_data_array_item(data_array, i);
 		const char *a = obs_data_get_string(string, "value");
 		wf->banlist.push_back(std::string(a));
+		wf->bancnt.push_back(0);
 	}
 	wf->channels = audio_output_get_channels(obs_get_audio());
 
