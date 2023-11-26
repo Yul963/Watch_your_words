@@ -937,9 +937,10 @@ void wyw_frequency_write(void *data)
 	std::vector<std::string> bnd = wf->banlist;
 	std::vector<std::int16_t> cnt = wf->bancnt;
 	std::vector<float> ps;
-
+	
 	for (int i = 0; i < cnt.size(); i++) {
-		ps[i] = (float)cnt[i] / (float)(wf->normalcnt);
+		float a = (float)cnt[i] / (float)(wf->normalcnt);
+		ps.push_back(a);
 	}
 	int i = 0;
 	time_t cTime = time(NULL);
@@ -969,8 +970,8 @@ void wyw_frequency_write(void *data)
 		pLocal->tm_min);
 	tmp = (std::string)buf;
 	writeable.write(tmp.c_str(), tmp.size());
-
-	while (i < bnd.size()) {
+	
+	 while (i < bnd.size()) {
 		tmp = ",\"";
 		tmp.append(bnd[i]).append("\"");
 		sprintf(buf, ",\"%.2f", ps[i] * 100);
@@ -980,10 +981,10 @@ void wyw_frequency_write(void *data)
 		writeable.write(pers.c_str(), pers.size());
 		i++;
 	}
-
+	
 	writeable.write("]}", 2);
 	writeable.close();
-
+	
 }
 //example
 //{
