@@ -928,29 +928,98 @@ void wyw_frequency_write(void *data)
 	int i = 0;
 	time_t cTime = time(NULL);
 	struct tm *pLocal = localtime(&cTime);
-	std::ofstream writeable;
+	std::fstream writeable;
 	char *path = obs_frontend_get_current_record_output_path();
-	std::string fname = *path + "/result.txt";
-	writeable.open(fname);
+	std::string fname = *path + "/result.json";
+	writeable.open(fname, ios::in);
+	if (!writeable.is_open()) {
+		mkfile(fname);
+	} else {
+		writeable.close();
+	}
+	writeable.open(fname, ios::app);
 	if (!writeable.is_open()) {
 		//fileopen err
 		return;
 	}
 
+	writeable.seekp(-5, ios::end);
 	std::string tmp;
 	char buf[50];
-	sprintf(buf, "%04d-%02d-%02d  %02d:%02d\n", pLocal->tm_year + 1900,
+	sprintf(buf, ",\n\t{\n\t\"date\":\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
 		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
-		pLocal->tm_min, pLocal->tm_sec);
+		pLocal->tm_min);
+	writeable.write(",\n{\n", 5);
 	writeable.write(buf, 50);
 
 	while (i < bnd.size()) {
-		tmp = bnd[i] + " ";
-		sprintf(buf, "%.2f", ps[i] * 100);
+		tmp = ",\n\t\"" + bnd[i] + "\": ";
+		sprintf(buf, "\"%.2f\"", ps[i] * 100);
 		std::string pers = buf;
-		pers += "%%\n";
+		pers += "%%";
 		writeable.write(tmp.c_str(), tmp.length());
 		writeable.write(pers.c_str(), pers.length());
 	}
+
+	writeable.write("}\n\t]\n}", 6);
 	writeable.close();
+
+}
+//example
+//{
+//	"key" : "stat"
+//	"stat" : [
+//	{
+//	"date" : "2000-01-01 01:01"
+//	}
+//	]
+//}
+//
+
+
+void mkfile(std::string fname)
+{
+	fstream base(fname, ios::out);
+	base << "\{\n\t\"key\" : \"stat\"\n\t\"stat\" : [\n\t\{\n\t\"date\" : \"2000-01-01 01:01\"\}\n\t]\n\}" << endl;
+	base.close();
+	return;
+}
+
+
+char* daystate(std::string date)
+{
+	std::ifstream readable;
+	char *path = obs_frontend_get_current_record_output_path();
+	std::string fname = *path + "/stat.json";
+	std::string json;
+	readable.open(fname);
+	if (!readable.is_open())
+	{
+		//fileopen err
+		return;
+	}
+
+	readable.seekg(0, std::ios::end);
+	int size = readable.tellg();
+	json.resize(size);
+	readable.seekg(0, std::ios::beg);
+	readable.read(&json[0], size);
+
+	Document doc;
+	doc.Parse(json.c_str());
+
+	const Value &stat = doc["stat"];
+	for (SizeType i = 0; i < stat.Size(); i++) {
+		Value &point = doc["stat"][i];
+		if (date == stat[0]["date"].GetString()) {
+			
+		}
+	}
+	return NULL;
+}
+
+
+void monstate()
+{
+
 }
