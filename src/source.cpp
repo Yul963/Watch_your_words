@@ -915,6 +915,15 @@ void getjson(void *data, char *jsonstring)
 
 }
 
+void mkfile(std::string fname)
+{
+	fstream base(fname, ios::out);
+	base << "\{\"key\":\"stat\",\"stat\" : [ \"2000-01-01 01:01\"]\}"
+	     << endl;
+	base.close();
+	return;
+}
+
 void wyw_frequency_write(void *data)
 {
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
@@ -943,25 +952,24 @@ void wyw_frequency_write(void *data)
 		return;
 	}
 
-	writeable.seekp(-5, ios::end);
+	writeable.seekp(-2, ios::end);
 	std::string tmp;
 	char buf[50];
-	sprintf(buf, ",\n\t{\n\t\"date\":\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
+	sprintf(buf, ",\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
 		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
 		pLocal->tm_min);
-	writeable.write(",\n{\n", 5);
 	writeable.write(buf, 50);
 
 	while (i < bnd.size()) {
-		tmp = ",\n\t\"" + bnd[i] + "\": ";
-		sprintf(buf, "\"%.2f\"", ps[i] * 100);
+		tmp = ",\"" + bnd[i] + "\"";
+		sprintf(buf, ",\"%.2f", ps[i] * 100);
 		std::string pers = buf;
-		pers += "%%";
+		pers += "%%\"";
 		writeable.write(tmp.c_str(), tmp.length());
 		writeable.write(pers.c_str(), pers.length());
 	}
 
-	writeable.write("}\n\t]\n}", 6);
+	writeable.write("]}", 2);
 	writeable.close();
 
 }
@@ -969,25 +977,19 @@ void wyw_frequency_write(void *data)
 //{
 //	"key" : "stat"
 //	"stat" : [
-//	{
-//	"date" : "2000-01-01 01:01"
-//	}
+//	"2000-01-01",
+//	"씨발","21%"
 //	]
 //}
 //
 
 
-void mkfile(std::string fname)
-{
-	fstream base(fname, ios::out);
-	base << "\{\n\t\"key\" : \"stat\"\n\t\"stat\" : [\n\t\{\n\t\"date\" : \"2000-01-01 01:01\"\}\n\t]\n\}" << endl;
-	base.close();
-	return;
-}
 
 
-char* daystate(std::string date)
+void daystate(std::string date)
 {
+	std::vector<std::string> banname;
+	std::vector<float> freq;
 	std::ifstream readable;
 	char *path = obs_frontend_get_current_record_output_path();
 	std::string fname = *path + "/stat.json";
@@ -1008,15 +1010,27 @@ char* daystate(std::string date)
 	Document doc;
 	doc.Parse(json.c_str());
 
+	fstream write;
+	write.open(date, ios::out);
 	const Value &stat = doc["stat"];
 	for (SizeType i = 0; i < stat.Size(); i++) {
 		Value &point = doc["stat"][i];
-		if (date == stat[0]["date"].GetString()) {
-			
+		if (date == stat[i].GetString()) {
+			write.write(date.c_str(), date.size());
+			i++;
+			while(strcmp(stat[i].GetString(), "end")==0) {
+				banname.push_back(stat[++i].GetString());
+				std::string data = stat[++i].GetString();
+				data.erase(find(data.begin(), data.end(), "%"));
+				float result = std::stod(data);
+				freq.push_back(result);
+			}
 		}
 	}
-	return NULL;
+
+	return;
 }
+
 
 
 void monstate()
