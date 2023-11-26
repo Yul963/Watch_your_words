@@ -71,7 +71,7 @@ void acquire_weak_text_source_ref(struct wyw_source_data *wf)
 		memcpy(dest[i], src[i], sizeof(float) * frames);
 	}
 }
-uint64_t start=0, end=0;
+uint64_t start=0, end2=0;
 double sin_val = 0.0;
 struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data *audio)
 {
@@ -102,7 +102,7 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	} else {
 		if (!wf->audio_buf.empty()) {
 			struct pair_audio temp = wf->audio_buf.front();
-			if (temp.timestamp >= start && temp.timestamp <= end) {
+			if (temp.timestamp >= start && temp.timestamp <= end2) {
 				for (size_t c = 0; c < channels; c++) {
 					for (size_t j = 0; j < audio->frames; j++) {
 						if (strcmp(wf->edit_mode, "mute") == 0) {
@@ -116,13 +116,13 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 						}
 					}
 				}
-			} else if (temp.timestamp > end) {
+			} else if (temp.timestamp > end2) {
 				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
 				if (!wf->timestamp_queue.empty()) {
 					edit_timestamp temp = wf->timestamp_queue.front();
 					wf->timestamp_queue.pop();
 					start = temp.start;
-					end = temp.end;
+					end2 = temp.end;
 				}
 			}
 			copy_obs_audio_data(fdata, temp.data, channels, audio->frames);
@@ -524,7 +524,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 		if (strcmp(new_text_source_name, "srt_file") == 0) {
 			// set the output file path
 			std::string current_path = obs_frontend_get_current_record_output_path();
-			std::string tmp_path = "tmp.srt";
+			std::string tmp_path = "/tmp.srt";
 			wf->output_file_path = current_path + tmp_path;
 		}
 	} else {
@@ -735,7 +735,9 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 					std::string srt_file_name = recording_file_name + ".srt";
 					std::rename(wf_->output_file_path.c_str(), srt_file_name.c_str());
 					obs_log(LOG_INFO, "srt_file_name is %s", srt_file_name.c_str());
-				}}},wf);
+				}
+				wyw_frequency_write(wf_);
+			}},wf);
 	//obs_log(LOG_INFO, "watch-your-words source created.");
 	return wf;
 }
@@ -938,8 +940,10 @@ void wyw_frequency_write(void *data)
 	time_t cTime = time(NULL);
 	struct tm *pLocal = localtime(&cTime);
 	std::fstream writeable;
-	char *path = obs_frontend_get_current_record_output_path();
-	std::string fname = *path + "/result.json";
+	std::string current_path = obs_frontend_get_current_record_output_path();
+	std::string result_path = "/result.txt";
+	std::string fname = current_path + result_path;
+	obs_log(LOG_INFO, "Recording stopped. write %s.", fname.c_str());
 	writeable.open(fname, ios::in);
 	if (!writeable.is_open()) {
 		mkfile(fname);
@@ -1014,14 +1018,18 @@ void daystate(std::string date)
 	write.open(date, ios::out);
 	const Value &stat = doc["stat"];
 	for (SizeType i = 0; i < stat.Size(); i++) {
-		Value &point = doc["stat"][i];
-		if (date == stat[i].GetString()) {
+		const Value &point = stat[i];
+		if (date == point.GetString()) {
 			write.write(date.c_str(), date.size());
 			i++;
-			while(strcmp(stat[i].GetString(), "end")==0) {
+			while (strcmp(stat[i].GetString(), "end") == 0) {
 				banname.push_back(stat[++i].GetString());
 				std::string data = stat[++i].GetString();
-				data.erase(find(data.begin(), data.end(), "%"));
+				auto percentSymbolIterator = std::find(
+					data.begin(), data.end(), '%');
+				if (percentSymbolIterator != data.end()) {
+					data.erase(percentSymbolIterator);
+				}
 				float result = std::stod(data);
 				freq.push_back(result);
 			}
