@@ -908,7 +908,7 @@ void getjson(void *data, char *jsonstring)
 
 	Document doc;
 	doc.Parse(json.c_str());
-	int i,j;
+	int i, j;
 	std::vector<std::string> temp;
 	Value &word = doc["ban"];
 	for (i = 0; i < word.Size(); i++) {
@@ -919,7 +919,6 @@ void getjson(void *data, char *jsonstring)
 		}
 		wf->bantext.push_back(temp);
 	}
-
 }
 
 void mkfile(std::string fname)
@@ -937,7 +936,7 @@ void wyw_frequency_write(void *data)
 	std::vector<std::string> bnd = wf->banlist;
 	std::vector<std::int16_t> cnt = wf->bancnt;
 	std::vector<float> ps;
-	
+
 	for (int i = 0; i < cnt.size(); i++) {
 		float a = (float)cnt[i] / (float)(wf->normalcnt);
 		ps.push_back(a);
@@ -946,7 +945,8 @@ void wyw_frequency_write(void *data)
 	time_t cTime = time(NULL);
 	struct tm *pLocal = localtime(&cTime);
 	std::fstream writeable;
-	std::string current_path = obs_frontend_get_current_record_output_path();
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
 	std::string result_path = "/result.txt";
 	std::string fname = current_path + result_path;
 	obs_log(LOG_INFO, "Recording stopped. write %s.", fname.c_str());
@@ -970,8 +970,8 @@ void wyw_frequency_write(void *data)
 		pLocal->tm_min);
 	tmp = (std::string)buf;
 	writeable.write(tmp.c_str(), tmp.size());
-	
-	 while (i < bnd.size()) {
+
+	while (i < bnd.size()) {
 		tmp = ",\"";
 		tmp.append(bnd[i]).append("\"");
 		sprintf(buf, ",\"%.2f", ps[i] * 100);
@@ -981,10 +981,9 @@ void wyw_frequency_write(void *data)
 		writeable.write(pers.c_str(), pers.size());
 		i++;
 	}
-	
+
 	writeable.write("]}", 2);
 	writeable.close();
-	
 }
 //example
 //{
@@ -996,9 +995,6 @@ void wyw_frequency_write(void *data)
 //}
 //
 
-
-
-
 void daystate(std::string date)
 {
 	std::vector<std::string> banname;
@@ -1008,8 +1004,7 @@ void daystate(std::string date)
 	std::string fname = *path + "/stat.json";
 	std::string json;
 	readable.open(fname);
-	if (!readable.is_open())
-	{
+	if (!readable.is_open()) {
 		//fileopen err
 		return;
 	}
@@ -1048,9 +1043,4 @@ void daystate(std::string date)
 	return;
 }
 
-
-
-void monstate()
-{
-
-}
+void monstate() {}
