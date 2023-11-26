@@ -962,15 +962,18 @@ void wyw_frequency_write(void *data)
 	sprintf(buf, ",\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
 		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
 		pLocal->tm_min);
-	writeable.write(buf, 50);
+	tmp = (std::string)buf;
+	writeable.write(tmp.c_str(), tmp.size());
 
 	while (i < bnd.size()) {
-		tmp = ",\"" + bnd[i] + "\"";
+		tmp = ",\"";
+		tmp.append(bnd[i]).append("\"");
 		sprintf(buf, ",\"%.2f", ps[i] * 100);
-		std::string pers = buf;
-		pers += "%%\"";
-		writeable.write(tmp.c_str(), tmp.length());
-		writeable.write(pers.c_str(), pers.length());
+		std::string pers = (std::string)buf;
+		pers.append("%%\"");
+		writeable.write(tmp.c_str(), tmp.size());
+		writeable.write(pers.c_str(), pers.size());
+		i++;
 	}
 
 	writeable.write("]}", 2);
