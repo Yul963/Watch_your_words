@@ -29,7 +29,7 @@
 #include <iomanip>
 #include <bitset>
 #include <filesystem>
-
+#include <google/cloud/speech/speech_client.h>
 #include "whisper.h"
 
 #define MT_ obs_module_text
@@ -120,27 +120,26 @@ struct wyw_source_data {
 	obs_weak_source_t *text_source = nullptr;
 	char *text_source_name = nullptr;
 	char *broadcast_type = nullptr;
+	char *stt_select = nullptr;
 	std::mutex *text_source_mutex = nullptr;
 	std::queue<DetectionResultWithText> output;
 	std::function<void(const DetectionResultWithText &result)> setTextCallback;
 	std::string output_file_path = "";
 
-	std::thread whisper_thread;
-	std::mutex *whisper_buf_mutex = nullptr;
+	std::thread stt_thread;
+	std::mutex *stt_buf_mutex = nullptr;
 	std::mutex *whisper_ctx_mutex = nullptr;
-	std::condition_variable *wshiper_thread_cv = nullptr;
+	std::condition_variable *stt_thread_cv = nullptr;
 
 	std::deque<struct pair_audio> audio_buf;
 	//std::queue<struct obs_source_frame> video_buf;
 	std::queue<struct edit_timestamp> timestamp_queue;
 	std::vector<struct edit_timestamp> token_result;
 
-	std::thread edit_thread;
-	std::mutex *audio_buf_mutex = nullptr;
 	std::mutex *timestamp_queue_mutex = nullptr;
-	std::mutex *edit_mutex = nullptr;
-	std::condition_variable *edit_thread_cv = nullptr;
-
+	std::mutex *google_context_mutex = nullptr;
+	google::cloud::speech::SpeechClient *google_context = nullptr;
+	int bytes_per_channel;
 	bool edit = false;
 
 	char *edit_mode = nullptr;

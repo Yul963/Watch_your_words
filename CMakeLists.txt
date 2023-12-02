@@ -55,10 +55,42 @@ include(cmake/BuildRapidJSON.cmake)
 include_directories(${RAPIDJSON_INCLUDE_DIR})
 add_dependencies(${CMAKE_PROJECT_NAME} rapidjson)
 
+execute_process(
+    COMMAND ${CMAKE_SOURCE_DIR}/vcpkg.bat
+    RESULT_VARIABLE result
+    OUTPUT_VARIABLE output
+)
+
+if(result EQUAL 0)
+    message("Command executed successfully")
+    message("Output: ${output}")
+else()
+    message("Command failed with error code: ${result}")
+endif()
+
+#include(cmake/vcpkg.cmake)
+include(${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake)
+find_package(google_cloud_cpp_common CONFIG REQUIRED)
+find_package(google_cloud_cpp_googleapis CONFIG REQUIRED)
+find_package(google_cloud_cpp_grpc_utils CONFIG REQUIRED)
+find_package(google_cloud_cpp_speech CONFIG REQUIRED)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/vcpkg/installed/x64-windows/bin/
+          DESTINATION "obs-plugins/64bit")
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
+    google-cloud-cpp::common
+    google-cloud-cpp::api_log_protos
+    google-cloud-cpp::api_auth_protos
+    google-cloud-cpp::grpc_utils
+    google-cloud-cpp::speech
+    google-cloud-cpp::speech_protos
+    google-cloud-cpp::cloud_speech_protos
+)
+
 target_sources(
   ${CMAKE_PROJECT_NAME}
-  PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp src/audio-processing.cpp
+  PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp
           src/model-utils/model-downloader.cpp src/model-utils/model-downloader-ui.cpp src/frequency-utils/frequency-dock.cpp
-          src/audio-delay/audio_delay.c src/audio-delay/audio_delay.cpp src/video-delay/video_delay.c)
+          src/audio-delay/audio_delay.c src/audio-delay/audio_delay.cpp src/video-delay/video_delay.c
+          src/google-speech/google-stt-processing.cpp src/util.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

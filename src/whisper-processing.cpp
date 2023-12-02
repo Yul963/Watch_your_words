@@ -1,7 +1,5 @@
 ﻿#include "whisper-processing.h"
-
-#define VAD_THOLD 0.0001f
-#define FREQ_THOLD 100.0f
+#include "src/util.h"
 //std::ofstream fout;
 
 std::vector<std::string> split_segment_text(const std::string &input)
@@ -13,55 +11,6 @@ std::vector<std::string> split_segment_text(const std::string &input)
 		words.push_back(word);
 	}
 	return words;
-}
-
-std::string to_timestamp(int64_t t)
-{
-	int64_t sec = t / 1000;
-	int64_t msec = t - sec * 1000;
-	int64_t min = sec / 60;
-	sec = sec - min * 60;
-
-	char buf[32];
-	snprintf(buf, sizeof(buf), "%02d:%02d.%03d", (int)min, (int)sec, (int)msec);
-
-	return std::string(buf);
-}
-
-void high_pass_filter(float *pcmf32, size_t pcm32f_size, float cutoff, uint32_t sample_rate)
-{
-	const float rc = 1.0f / (2.0f * (float)M_PI * cutoff);
-	const float dt = 1.0f / (float)sample_rate;
-	const float alpha = dt / (rc + dt);
-	float y = pcmf32[0];
-	for (size_t i = 1; i < pcm32f_size; i++) {
-		y = alpha * (y + pcmf32[i] - pcmf32[i - 1]);
-		pcmf32[i] = y;
-	}
-}
-
-// VAD (voice activity detection), return true if speech detected
-bool vad_simple(float *pcmf32, size_t pcm32f_size, uint32_t sample_rate,
-		float vad_thold, float freq_thold, bool verbose)
-{
-	const uint64_t n_samples = pcm32f_size;
-	if (freq_thold > 0.0f) {
-		high_pass_filter(pcmf32, pcm32f_size, freq_thold, sample_rate);
-	}
-	float energy_all = 0.0f;
-	for (uint64_t i = 0; i < n_samples; i++) {
-		energy_all += fabsf(pcmf32[i]);
-	}
-	energy_all /= (float)n_samples;
-	if (verbose) {
-		obs_log(LOG_INFO,
-			"%s: energy_all: %f, vad_thold: %f, freq_thold: %f",
-			__func__, energy_all, vad_thold, freq_thold);
-	}
-	if (energy_all < vad_thold) {
-		return false;
-	}
-	return true;
 }
 
 struct whisper_context *init_whisper_context(const std::string &model_path)
@@ -207,13 +156,13 @@ struct DetectionResultWithText run_whisper_inference(struct wyw_source_data *wf,
 	}
 }
 
-void process_audio_from_buffer(struct wyw_source_data *wf)
+void process_whisper_audio_from_buffer(struct wyw_source_data *wf)
 {
 	uint32_t num_new_frames_from_infos = 0;
 	uint64_t start_timestamp = 0;
 	bool last_step_in_segment = false;
 	{
-		std::lock_guard<std::mutex> lock(*wf->whisper_buf_mutex);
+		std::lock_guard<std::mutex> lock(*wf->stt_buf_mutex);
 		// We need (wf->frames - wf->last_num_frames) new frames for a full segment,
 		const size_t remaining_frames_to_full_segment = wf->frames - wf->last_num_frames;
 		struct watch_your_words_audio_info info_from_buf = {0};
@@ -348,7 +297,7 @@ void whisper_loop(struct wyw_source_data *wf)
 		while (true) {
 			size_t input_buf_size = 0;
 			{
-				std::lock_guard<std::mutex> lock(*wf->whisper_buf_mutex);
+				std::lock_guard<std::mutex> lock(*wf->stt_buf_mutex);
 				input_buf_size = wf->input_buffers[0].size;
 			}
 			//const size_t step_size_frames = wf->step_size_msec * wf->sample_rate / 1000;
@@ -362,7 +311,7 @@ void whisper_loop(struct wyw_source_data *wf)
 
 				// Process the audio. This will also remove the processed data from the input buffer.
 				// Mutex is locked inside process_audio_from_buffer.
-				process_audio_from_buffer(wf);
+				process_whisper_audio_from_buffer(wf);
 			} else {
 				break;
 			}
@@ -371,7 +320,7 @@ void whisper_loop(struct wyw_source_data *wf)
 		// This will wake up the thread if there is new data in the input buffer
 		// or if the whisper context is null
 		std::unique_lock<std::mutex> lock(*wf->whisper_ctx_mutex);
-		wf->wshiper_thread_cv->wait_for(lock, std::chrono::milliseconds(10));
+		wf->stt_thread_cv->wait_for(lock, std::chrono::milliseconds(10));
 	}
 	//fout.close();
 	obs_log(LOG_INFO, "exiting whisper thread");
@@ -382,17 +331,17 @@ void shutdown_whisper_thread(struct wyw_source_data *wf)
 	obs_log(LOG_INFO, "shutdown_whisper_thread");
 	if (wf->whisper_context != nullptr) {
 		// acquire the mutex before freeing the context
-		if (!wf->whisper_ctx_mutex || !wf->wshiper_thread_cv) {
+		if (!wf->whisper_ctx_mutex || !wf->stt_thread_cv) {
 			obs_log(LOG_ERROR, "whisper_ctx_mutex is null");
 			return;
 		}
 		std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 		whisper_free(wf->whisper_context);
 		wf->whisper_context = nullptr;
-		wf->wshiper_thread_cv->notify_all();
+		wf->stt_thread_cv->notify_all();
 	}
-	if (wf->whisper_thread.joinable()) {
-		wf->whisper_thread.join();
+	if (wf->stt_thread.joinable()) {
+		wf->stt_thread.join();
 	}
 	if (wf->whisper_model_path != nullptr) {
 		bfree(wf->whisper_model_path);
@@ -404,17 +353,15 @@ void start_whisper_thread_with_path(struct wyw_source_data *wf,const std::string
 {
 	obs_log(LOG_INFO, "start_whisper_thread_with_path: %s", path.c_str());
 	if (!wf->whisper_ctx_mutex) {
-		obs_log(LOG_ERROR,
-			"cannot init whisper: whisper_ctx_mutex is null");
+		obs_log(LOG_ERROR,"cannot init whisper: whisper_ctx_mutex is null");
 		return;
 	}
 	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 	if (wf->whisper_context != nullptr) {
-		obs_log(LOG_ERROR,
-			"cannot init whisper: whisper_context is not null");
+		obs_log(LOG_ERROR,"cannot init whisper: whisper_context is not null");
 		return;
 	}
 	wf->whisper_context = init_whisper_context(path);
 	std::thread new_whisper_thread(whisper_loop, wf);
-	wf->whisper_thread.swap(new_whisper_thread);
+	wf->stt_thread.swap(new_whisper_thread);
 }
