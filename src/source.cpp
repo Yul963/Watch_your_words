@@ -1,10 +1,9 @@
 ﻿#include "source.h"
 #include "source_data.h"
 #include "whisper-processing.h"
-#include "audio-processing.h"
+#include "src/google-speech/google-stt-processing.h"
 #include "model-utils/model-downloader.h"
 #include "frequency-utils/frequency-dock.h"
-#include "rapidjson/document.h"
 
 #ifndef M_PI
 #define M_PI 3.1415926535897932384626433832795
@@ -141,16 +140,16 @@ struct obs_audio_data *wyw_source_filter_audio(void *data, struct obs_audio_data
 	if (wf->process_while_muted == false && obs_source_muted(parent_source)) {
 		return audio;
 	}
-	if (wf->whisper_context == nullptr) {
+	if (wf->whisper_context == nullptr && wf->google_context == nullptr) {
 		return audio;
 	}
-	if (!wf->whisper_buf_mutex || !wf->whisper_ctx_mutex) {
-		obs_log(LOG_ERROR, "whisper mutexes are null");
+	if (!wf->stt_buf_mutex || (!wf->whisper_ctx_mutex && !wf->google_context_mutex)) {
+		obs_log(LOG_ERROR, "mutexes are null");
 		return audio;
 	}
 
 	{
-		std::lock_guard<std::mutex> lock(*wf->whisper_buf_mutex);
+		std::lock_guard<std::mutex> lock(*wf->stt_buf_mutex);
 		for (size_t c = 0; c < wf->channels; c++) {
 			if (wf->censor)
 				circlebuf_push_back(&wf->input_buffers[c], wf->audio_buf.back().data[c], audio->frames * sizeof(float));
@@ -208,28 +207,25 @@ void wyw_source_destroy(void *data)
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
 
 	{
+		std::lock_guard<std::mutex> lock(*wf->google_context_mutex);
+		if (wf->google_context != nullptr) {
+			delete wf->google_context;
+			wf->google_context = nullptr;
+			wf->stt_thread_cv->notify_all();
+		}
+	}
+
+	{
 		std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
 		if (wf->whisper_context != nullptr) {
 			whisper_free(wf->whisper_context);
 			wf->whisper_context = nullptr;
-			wf->wshiper_thread_cv->notify_all();
+			wf->stt_thread_cv->notify_all();
 		}
 	}
 
-	if (wf->whisper_thread.joinable()) {
-		wf->whisper_thread.join();
-	}
-
-	{
-		std::lock_guard<std::mutex> lock(*wf->edit_mutex);
-		if (wf->edit == true) {
-			wf->edit = false;
-			wf->edit_thread_cv->notify_all();
-		}
-	}
-
-	if (wf->edit_thread.joinable()) {
-		wf->edit_thread.join();
+	if (wf->stt_thread.joinable()) {
+		wf->stt_thread.join();
 	}
 
 	if (wf->edit_mode) {
@@ -261,8 +257,13 @@ void wyw_source_destroy(void *data)
 		wf->broadcast_type = nullptr;
 	}
 
+	if (wf->stt_select) {
+		bfree(wf->stt_select);
+		wf->stt_select = nullptr;
+	}
+
 	{
-		std::lock_guard<std::mutex> lockbuf(*wf->whisper_buf_mutex);
+		std::lock_guard<std::mutex> lockbuf(*wf->stt_buf_mutex);
 		bfree(wf->copy_buffers[0]);
 		wf->copy_buffers[0] = nullptr;
 		for (size_t i = 0; i < wf->channels; i++) {
@@ -271,15 +272,12 @@ void wyw_source_destroy(void *data)
 	}
 	circlebuf_free(&wf->info_buffer);
 
-	delete wf->whisper_buf_mutex;
+	delete wf->stt_buf_mutex;
 	delete wf->whisper_ctx_mutex;
-	delete wf->wshiper_thread_cv;
+	delete wf->stt_thread_cv;
 	delete wf->text_source_mutex;
-	
-	delete wf->audio_buf_mutex;
+	delete wf->google_context_mutex;
 	delete wf->timestamp_queue_mutex;
-	delete wf->edit_mutex;
-	delete wf->edit_thread_cv;
 
 	for (; !wf->audio_buf.empty();) {
 		//obs_log(LOG_INFO, "audio_buf emptying.");
@@ -392,14 +390,6 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 		i++;
 	}
 	wf->token_result.clear();
-	/*
-	if (wf->caption_to_stream) {
-		obs_output_t *streaming_output = obs_frontend_get_streaming_output();
-		if (streaming_output) {
-			obs_output_output_caption_text1(streaming_output, str_copy.c_str());
-			obs_output_release(streaming_output);
-		}
-	}*/
 
 	if (wf->output_file_path != "" && !wf->text_source_name) {
 		// Check if we should save the sentence
@@ -478,6 +468,7 @@ void wyw_source_update(void *data, obs_data_t *s)
 	wf->start_timestamp_ms = now_ms();
 	wf->sentence_number = 1;
 	wf->process_while_muted = obs_data_get_bool(s, "process_while_muted");
+
 	if (wf->broadcast_type) {
 		bfree(wf->broadcast_type);
 		wf->broadcast_type = nullptr;
@@ -489,7 +480,6 @@ void wyw_source_update(void *data, obs_data_t *s)
 	if (!current_censor && wf->censor)
 		started = false;
 	else if (current_censor && !wf->censor) {
-		std::lock_guard<std::mutex> lockbuf(*wf->audio_buf_mutex);
 		for (; !wf->audio_buf.empty();) {
 			struct pair_audio temp = wf->audio_buf.front();
 			for (int i = 0; i < wf->channels; i++)
@@ -561,79 +551,107 @@ void wyw_source_update(void *data, obs_data_t *s)
 	std::string new_edit_mode = obs_data_get_string(s, "edit_mode");
 	if (wf->edit_mode == nullptr ||
 		    strcmp(new_edit_mode.c_str(), wf->edit_mode) != 0) {
-			shutdown_edit_thread(wf);
 			wf->edit_mode = bstrdup(new_edit_mode.c_str());
-			start_edit_thread(wf);
 	}
 
 	obs_log(LOG_INFO, "watch_your_words: update whisper model");
 	// update the whisper model path
-	std::string new_model_path = obs_data_get_string(s, "whisper_model_path");
+	
+	std::string new_stt_select = obs_data_get_string(s, "stt_select");
 
-	if (wf->whisper_model_path == nullptr ||
-	    strcmp(new_model_path.c_str(), wf->whisper_model_path) != 0) {
-		// model path changed, reload the model
-		obs_log(LOG_INFO, "model path changed from %s to %s", wf->whisper_model_path, new_model_path.c_str());
-
-		shutdown_whisper_thread(wf);
-		wf->whisper_model_path = bstrdup(new_model_path.c_str());
-
-		std::string model_file_found = find_model_file(wf->whisper_model_path);
-
-		if (model_file_found == "") {
-			obs_log(LOG_ERROR, "Whisper model does not exist");
-			download_model_with_ui_dialog(
-				wf->whisper_model_path,
-				[wf](int download_status, const std::string &path) {
-					if (download_status == 0) {
-						obs_log(LOG_INFO,
-							"Model download complete");
-						start_whisper_thread_with_path(wf, path);
-					} else {
-						obs_log(LOG_ERROR,
-							"Model download failed");
-					}
-				});
-		} else {
-			start_whisper_thread_with_path(wf, model_file_found);
+	if (wf->stt_select == nullptr || strcmp(new_stt_select.c_str(), wf->stt_select) != 0) {
+		obs_log(LOG_INFO,"stt changed, reload stt thread");
+		struct resample_info src, dst;
+		src.samples_per_sec = wf->sample_rate;
+		src.format = AUDIO_FORMAT_FLOAT_PLANAR;
+		src.speakers =convert_speaker_layout((uint8_t)wf->channels);
+		wf->stt_select = bstrdup(new_stt_select.c_str());
+		if (strcmp(wf->stt_select, "whisper") == 0) { //whisper
+			obs_log(LOG_INFO,"stt changed, shutdown google stt thread and starting whisper thread");
+			shutdown_google_stt_thread(wf);
+			dst.samples_per_sec = WHISPER_SAMPLE_RATE;
+			dst.format = AUDIO_FORMAT_FLOAT_PLANAR;
+			dst.speakers = convert_speaker_layout((uint8_t)1);
+			audio_resampler_destroy(wf->resampler);
+			wf->resampler = audio_resampler_create(&dst, &src);
+		} else {//google-stt
+			obs_log(LOG_INFO,"stt changed, shutdown whisper thread and starting google stt thread");
+			shutdown_whisper_thread(wf);
+			dst.samples_per_sec = 16000;
+			dst.format = AUDIO_FORMAT_16BIT;
+			dst.speakers = SPEAKERS_MONO;
+			wf->bytes_per_channel = get_audio_bytes_per_channel(dst.format);
+			audio_resampler_destroy(wf->resampler);
+			wf->resampler = audio_resampler_create(&dst, &src);
+			start_google_stt_thread(wf);
 		}
-	} else {
-		obs_log(LOG_INFO, "model path did not change: %s == %s",
-			wf->whisper_model_path, new_model_path.c_str());
 	}
 
-	if (!wf->whisper_ctx_mutex) {
-		obs_log(LOG_ERROR, "whisper_ctx_mutex is null");
-		return;
-	}
-	obs_log(LOG_INFO, "watch_your_words: update whisper params");
-	std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+	if (strcmp(wf->stt_select, "whisper") == 0) {
+		std::string new_model_path = obs_data_get_string(s, "whisper_model_path");
+		if (wf->whisper_model_path == nullptr ||
+		    strcmp(new_model_path.c_str(), wf->whisper_model_path) != 0) {
+			// model path changed, reload the model
+			obs_log(LOG_INFO, "model path changed from %s to %s", wf->whisper_model_path, new_model_path.c_str());
 
-	wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
-	wf->whisper_params.duration_ms = 3000;
-	wf->whisper_params.language = "ko";
-	wf->whisper_params.initial_prompt = "인터넷 방송";
-	wf->whisper_params.n_threads = std::min((int)obs_data_get_int(s, "n_threads"),(int)std::thread::hardware_concurrency());
-	wf->whisper_params.n_max_text_ctx = 16384;
-	wf->whisper_params.translate = false;
-	wf->whisper_params.no_context =true;
-	wf->whisper_params.single_segment =true; 
-	wf->whisper_params.print_special = false;
-	wf->whisper_params.print_progress = false;
-	wf->whisper_params.print_realtime = false;
-	wf->whisper_params.print_timestamps = false;
-	wf->whisper_params.token_timestamps = true;
-	wf->whisper_params.thold_pt = (float)obs_data_get_double(s, "thold_pt");
-	wf->whisper_params.thold_ptsum = (float)obs_data_get_double(s, "thold_ptsum");
-	wf->whisper_params.max_len = 0;
-	wf->whisper_params.split_on_word =true;
-	wf->whisper_params.max_tokens = (int)obs_data_get_int(s, "max_tokens");
-	wf->whisper_params.speed_up = false;
-	wf->whisper_params.suppress_blank = true;
-	wf->whisper_params.suppress_non_speech_tokens = true;
-	wf->whisper_params.temperature = (float)obs_data_get_double(s, "temperature");
-	wf->whisper_params.max_initial_ts = (float)obs_data_get_double(s, "max_initial_ts");
-	wf->whisper_params.length_penalty = (float)obs_data_get_double(s, "length_penalty");
+			shutdown_whisper_thread(wf);
+			wf->whisper_model_path = bstrdup(new_model_path.c_str());
+
+			std::string model_file_found = find_model_file(wf->whisper_model_path);
+
+			if (model_file_found == "") {
+				obs_log(LOG_ERROR,"Whisper model does not exist");
+				download_model_with_ui_dialog(
+					wf->whisper_model_path,
+					[wf](int download_status,const std::string &path) {
+						if (download_status == 0) {
+							obs_log(LOG_INFO,"Model download complete");
+							start_whisper_thread_with_path(wf, path);
+						} else {
+							obs_log(LOG_ERROR,"Model download failed");
+						}
+					});
+			} else {
+				start_whisper_thread_with_path(wf, model_file_found);
+			}
+		} else {
+			obs_log(LOG_INFO, "model path did not change: %s == %s",
+				wf->whisper_model_path, new_model_path.c_str());
+		}
+
+		if (!wf->whisper_ctx_mutex) {
+			obs_log(LOG_ERROR, "whisper_ctx_mutex is null");
+			return;
+		}
+		obs_log(LOG_INFO, "watch_your_words: update whisper params");
+		std::lock_guard<std::mutex> lock(*wf->whisper_ctx_mutex);
+
+		wf->whisper_params = whisper_full_default_params((whisper_sampling_strategy)obs_data_get_int(s, "whisper_sampling_method"));
+		wf->whisper_params.duration_ms = 3000;
+		wf->whisper_params.language = "ko";
+		wf->whisper_params.initial_prompt = "인터넷 방송";
+		wf->whisper_params.n_threads =std::min((int)obs_data_get_int(s, "n_threads"), (int)std::thread::hardware_concurrency());
+		wf->whisper_params.n_max_text_ctx = 16384;
+		wf->whisper_params.translate = false;
+		wf->whisper_params.no_context = true;
+		wf->whisper_params.single_segment = true;
+		wf->whisper_params.print_special = false;
+		wf->whisper_params.print_progress = false;
+		wf->whisper_params.print_realtime = false;
+		wf->whisper_params.print_timestamps = false;
+		wf->whisper_params.token_timestamps = true;
+		wf->whisper_params.thold_pt =(float)obs_data_get_double(s, "thold_pt");
+		wf->whisper_params.thold_ptsum =(float)obs_data_get_double(s, "thold_ptsum");
+		wf->whisper_params.max_len = 0;
+		wf->whisper_params.split_on_word = true;
+		wf->whisper_params.max_tokens =(int)obs_data_get_int(s, "max_tokens");
+		wf->whisper_params.speed_up = false;
+		wf->whisper_params.suppress_blank = true;
+		wf->whisper_params.suppress_non_speech_tokens = true;
+		wf->whisper_params.temperature =(float)obs_data_get_double(s, "temperature");
+		wf->whisper_params.max_initial_ts =(float)obs_data_get_double(s, "max_initial_ts");
+		wf->whisper_params.length_penalty =(float)obs_data_get_double(s, "length_penalty");
+	}
 }
 
 void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
@@ -668,26 +686,16 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 	wf->overlap_frames = (size_t)((float)wf->sample_rate / (1000.0f / (float)wf->overlap_ms));
 	obs_log(LOG_INFO, "watch_your_words: channels %d, frames %d, sample_rate %d",(int)wf->channels, (int)wf->frames, wf->sample_rate);
 	obs_log(LOG_INFO, "watch_your_words: setup audio resampler");
-	struct resample_info src, dst;
-	src.samples_per_sec = wf->sample_rate;
-	src.format = AUDIO_FORMAT_FLOAT_PLANAR;
-	src.speakers = convert_speaker_layout((uint8_t)wf->channels);
-
-	dst.samples_per_sec = WHISPER_SAMPLE_RATE;
-	dst.format = AUDIO_FORMAT_FLOAT_PLANAR;
-	dst.speakers = convert_speaker_layout((uint8_t)1);
-	wf->resampler = audio_resampler_create(&dst, &src);
 
 	obs_log(LOG_INFO, "watch_your_words: setup mutexes and condition variables");
-	wf->whisper_buf_mutex = new std::mutex();
+	wf->stt_buf_mutex = new std::mutex();
 	wf->whisper_ctx_mutex = new std::mutex();
-	wf->wshiper_thread_cv = new std::condition_variable();
+	wf->stt_thread_cv = new std::condition_variable();
 	wf->text_source_mutex = new std::mutex();
-
-	wf->audio_buf_mutex = new std::mutex();
 	wf->timestamp_queue_mutex = new std::mutex();
-	wf->edit_mutex = new std::mutex();
-	wf->edit_thread_cv = new std::condition_variable();
+	wf->google_context_mutex = new std::mutex();
+	wf->stt_select = nullptr;
+	wf->google_context = nullptr;
 
 	obs_log(LOG_INFO, "watch_your_words: clear text source data");
 	wf->text_source = nullptr;
@@ -698,14 +706,7 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 		wf->text_source_name = nullptr;
 	}
 
-	const char *broadcast_type =
-		obs_data_get_string(settings, "broadcast_type");
-	if (broadcast_type != nullptr) {
-		wf->broadcast_type = bstrdup(broadcast_type);
-	} else {
-		wf->broadcast_type = nullptr;
-	}
-
+	wf->broadcast_type = nullptr;
 	obs_log(LOG_INFO, "watch_your_words: clear paths and whisper context");
 	wf->output_file_path = std::string("");
 	wf->whisper_model_path = nullptr;
@@ -750,9 +751,10 @@ void wyw_source_defaults(obs_data_t *s) {
 	obs_data_set_default_string(s, "edit_mode","beep");
 
 	obs_data_set_default_bool(s, "vad_enabled", true);
-	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-small-q5_1.bin");
+	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-base.bin");
 	obs_data_set_default_string(s, "subtitle_sources", "none");
 	obs_data_set_default_string(s, "broadcast_type", "none");
+	obs_data_set_default_string(s, "stt_select", "whisper");
 	obs_data_set_default_bool(s, "process_while_muted", false);
 	obs_data_set_default_bool(s, "subtitle_save_srt", false);
 	obs_data_set_default_bool(s, "censor", true);
@@ -777,18 +779,26 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_property_t *ban_list_property = obs_properties_get(ppts, "ban list");
 
-	obs_property_set_modified_callback2(
-		ban_list_property,
-		[](void *data, obs_properties_t *props,
-		   obs_property_t *property, obs_data_t *settings) {
-			obs_log(LOG_INFO, "ban_list modified");
+	obs_property_t *stt_select = obs_properties_add_list(
+		ppts, "stt_select", MT_("stt_select"),
+		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+
+	obs_property_list_add_string(stt_select, MT_("whisper"), "whisper");
+	obs_property_list_add_string(stt_select, MT_("google-stt"), "google-stt");
+
+	//obs_properties_add_text(ppts, MT_("google_api_key"), "google_api_key", \OBS_TEXT_DEFAULT);
+
+	obs_property_set_modified_callback(
+		stt_select,
+		[](obs_properties_t *props, obs_property_t *property,
+		   obs_data_t *settings) {
 			UNUSED_PARAMETER(property);
-			UNUSED_PARAMETER(props);
-			struct wyw_source_data *wf =
-				static_cast<struct wyw_source_data *>(data);
+			const bool whisper_selected = strcmp(obs_data_get_string(settings, "stt_select"),"google-stt");
+			//obs_property_set_visible(obs_properties_get(props, "google_api_key"),!whisper_selected);
+			obs_property_set_visible(obs_properties_get(props, "whisper_model_path"),whisper_selected);
+			obs_property_set_visible(obs_properties_get(props, "whisper_params_group"),whisper_selected);
 			return true;
-		},
-		wf);
+		});
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
