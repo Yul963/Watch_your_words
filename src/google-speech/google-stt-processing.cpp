@@ -62,11 +62,11 @@ struct DetectionResultWithText run_google_speech_inference(struct wyw_source_dat
 							end.seconds(), end.nanos() / 100000000L);
 						uint64_t t0 =start.seconds() *1000000000L +start.nanos();
 						uint64_t t1 =end.seconds() *1000000000L +end.nanos();
-						edit.emplace_back(word,t0 + start_timestamp,t0 + start_timestamp);
+						edit.emplace_back(word,t0 + start_timestamp,t1 + start_timestamp);
 					}
 				}
 			}
-			//wf->token_result = edit;
+			wf->token_result = edit;
 		}
 	}
 	catch (const std::exception &ex){
