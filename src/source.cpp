@@ -1078,7 +1078,7 @@ void daystat(const std::string &root, const std::string &date)
 	std::ofstream ofs(fname, std::ofstream::out);
 	ofs << targetDate << std::endl;
 	for (int i = 0; i < banname.size(); i++) {
-		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token
+		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token*100
 		    << "%" << std::endl;
 	}
 	ofs << "토큰 수 :" << token << std::endl;
@@ -1109,20 +1109,12 @@ void monstat(const std::string &root, const std::string &targetMonth)
 	Document document;
 	document.Parse(jsonContent.c_str());
 
-	if (document.HasParseError()) {
-		return;
-	}
 
-	for (SizeType i = 0; i < document["stat"].Size(); ++i) {
+	for (SizeType i = 0; i < document["stat"].Size(); i++) {
 		std::string date = document["stat"][i].GetString();
-		struct std::tm timeinfo;
-		std::istringstream ss(date);
-		ss >> std::get_time(&timeinfo, "%Y-%m-%d");
-		char buffer[10];
-		std::strftime(buffer, sizeof(buffer), "%Y-%m", &timeinfo);
-		std::string month(buffer);
+		std::string sub = date.substr(0, 7);
 
-		if (month == targetMonth) {
+		if (sub.compare(targetMonth)) {
 			auto index = find(banname.begin(), banname.end(),
 					  document["stat"][i].GetString());
 			if (index== banname.end()) {
@@ -1136,7 +1128,6 @@ void monstat(const std::string &root, const std::string &targetMonth)
 					i++;
 				} else {
 					token += atoi(temp.c_str());
-					break;
 				}
 			} else {
 				bancnt[index-banname.begin()] +=
@@ -1146,17 +1137,16 @@ void monstat(const std::string &root, const std::string &targetMonth)
 	}
 
 	// 파일에 월별 통계를 저장합니다.
-	std::ofstream ofs(fname);
-	if (!ofs.is_open()) {
-		return;
-	}
+	std::ofstream ofs(fname,ios::out);
 
-	 ofs << targetMonth <<std::endl;
+
+	ofs << targetMonth <<std::endl;
 	for (SizeType i = 0; i < banname.size();i++) {
-		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token
+		ofs << banname[i] << " : "
+		    << (float)bancnt[i] / (float)token * 100 << "%"
 		    << std::endl;
 	}
-	ofs << "토큰 수 :" << token << std::endl;
+	ofs << "토큰 수 :" << token  << std::endl;
 	ofs.close();
 
 }
@@ -1236,6 +1226,5 @@ void wyw_frequency_write(void *data)
 	writeable.write("]}", 2);
 	writeable.close();
 
-	daystat(fname, "2023-12-03 03:06");
-	monstat(fname, "2023-12");
+	
 }
