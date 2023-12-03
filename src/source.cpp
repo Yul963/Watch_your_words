@@ -7,7 +7,8 @@
 #include "rapidjson/document.h"
 
 #ifndef M_PI
-#define M_PI 3.1415926535897932384626433832795
+#define M_PI 3.1415926535897932384626433832795'
+
 #endif
 
 #define do_log(level, format, ...)                 \
@@ -343,7 +344,7 @@ void uploadcount(struct wyw_source_data *wf)
 	writeable.open(fname, ios::out);
 	for (SizeType i = 0; i < wf->banlist.size(); i++) {
 		writeable << wf->banlist[i] << " : "
-			  << (float)(wf->bancnt[i]) / (float)(wf->normalcnt) << "%"
+			  << (float)(wf->bancnt[i]) / (float)(wf->normalcnt)*100 << "%"
 			  << std::endl;
 	}
 	writeable << "token :" << wf->normalcnt << std::endl;
@@ -355,7 +356,7 @@ void uploadcount(struct wyw_source_data *wf)
 	for (SizeType i = 0; i < wf->banlist.size(); i++) {
 		totalcnt += wf->bancnt[i];
 	}
-	writeable << "비속어 :" << (float)totalcnt / (float)(wf->normalcnt)
+	writeable << "비속어 :" << (float)totalcnt / (float)(wf->normalcnt)*100 
 		  << "%"
 		  << std::endl;
 
@@ -754,6 +755,11 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 		[](enum obs_frontend_event event, void *private_data) {
 			if (event == OBS_FRONTEND_EVENT_RECORDING_STARTING) {
 				struct wyw_source_data *wf_ = static_cast<struct wyw_source_data*>(private_data);
+				wf_->normalcnt = 0;
+				for (SizeType i = 0; i < wf_->banlist.size();
+				     i++) {
+					wf_->bancnt[i] = 0;
+				}
 				if (wf_->save_srt) {
 					obs_log(LOG_INFO,"Recording started. Resetting srt file.");
 					std::ofstream output_file(wf_->output_file_path, std::ios::out | std::ios::trunc);
@@ -1044,6 +1050,7 @@ void daystat(const std::string &root, const std::string &date)
 
 	const char *targetDate = date.c_str();
 	bool foundDate = false;
+	std::string broadcasttype;
 
 	std::string current_path =
 		obs_frontend_get_current_record_output_path();
@@ -1057,11 +1064,14 @@ void daystat(const std::string &root, const std::string &date)
 		if (document["stat"][i].IsString() &&
 		    strcmp(document["stat"][i].GetString(), targetDate) == 0) {
 			foundDate = true;
+			broadcasttype = document["stat"][i].GetString();
+			i++;
 			continue;
 		}
 
 		if (foundDate) {
 			// 해당 날짜 이후부터 값을 파싱하여 파일에 저장합니다.
+			
 			std::string temp = document["stat"][i].GetString();
 			if (!atoi(temp.c_str())) {
 				banname.push_back(document["stat"][i].GetString());
@@ -1077,6 +1087,7 @@ void daystat(const std::string &root, const std::string &date)
 
 	std::ofstream ofs(fname, std::ofstream::out);
 	ofs << targetDate << std::endl;
+	ofs << broadcasttype <<std::endl;
 	for (int i = 0; i < banname.size(); i++) {
 		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token*100
 		    << "%" << std::endl;
@@ -1208,6 +1219,14 @@ void wyw_frequency_write(void *data)
 	tmp = (std::string)buf;
 	writeable.write(tmp.c_str(), tmp.size());
 
+	if (wf->broadcast_type == nullptr) {
+		writeable.write(",\"none\"", 7);
+	} else {
+		tmp = ",\"" + (std::string)wf->broadcast_type + "\"";
+		writeable.write(tmp.c_str(), tmp.size());
+	}
+
+
 	while (i < bnd.size()) {
 		tmp = ",\"";
 		tmp.append(bnd[i]).append("\"");
@@ -1226,5 +1245,4 @@ void wyw_frequency_write(void *data)
 	writeable.write("]}", 2);
 	writeable.close();
 
-	
 }
