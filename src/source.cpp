@@ -6,7 +6,8 @@
 #include "frequency-utils/frequency-dock.h"
 
 #ifndef M_PI
-#define M_PI 3.1415926535897932384626433832795
+#define M_PI 3.1415926535897932384626433832795'
+
 #endif
 
 #define do_log(level, format, ...)                 \
@@ -328,6 +329,39 @@ inline bool is_valid_lead_byte(const uint8_t *c)
 	return false;
 }
 
+void uploadcount(struct wyw_source_data *wf)
+{
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string public_path = "/public_page.txt";
+	std::string private_path = "/private_page.txt";
+
+	fstream writeable;
+	
+	std::string fname = current_path + private_path;
+	writeable.open(fname, ios::out);
+	for (SizeType i = 0; i < wf->banlist.size(); i++) {
+		writeable << wf->banlist[i] << " : "
+			  << (float)(wf->bancnt[i]) / (float)(wf->normalcnt)*100 << "%"
+			  << std::endl;
+	}
+	writeable << "token :" << wf->normalcnt << std::endl;
+	writeable.close();
+	
+	fname = current_path + public_path;
+	writeable.open(fname, ios::out);
+	int totalcnt = 0;
+	for (SizeType i = 0; i < wf->banlist.size(); i++) {
+		totalcnt += wf->bancnt[i];
+	}
+	writeable << "비속어 :" << (float)totalcnt / (float)(wf->normalcnt)*100 
+		  << "%"
+		  << std::endl;
+
+	writeable << "token :" << wf->normalcnt << std::endl;
+	writeable.close();
+}
+
 void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &resultIn)
 {
 	DetectionResultWithText result = resultIn;
@@ -385,9 +419,10 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 				uint64_t a = (temp.end - temp.start);
 				obs_log(LOG_INFO,
 					"edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu", temp.start, temp.end, word.c_str(), a);
-			}
-		}
+			}	
 		i++;
+		}
+		uploadcount(wf);
 	}
 	wf->token_result.clear();
 
@@ -721,6 +756,11 @@ void *wyw_source_create(obs_data_t *settings, obs_source_t *filter)
 		[](enum obs_frontend_event event, void *private_data) {
 			if (event == OBS_FRONTEND_EVENT_RECORDING_STARTING) {
 				struct wyw_source_data *wf_ = static_cast<struct wyw_source_data*>(private_data);
+				wf_->normalcnt = 0;
+				for (SizeType i = 0; i < wf_->banlist.size();
+				     i++) {
+					wf_->bancnt[i] = 0;
+				}
 				if (wf_->save_srt) {
 					obs_log(LOG_INFO,"Recording started. Resetting srt file.");
 					std::ofstream output_file(wf_->output_file_path, std::ios::out | std::ios::trunc);
@@ -799,6 +839,9 @@ obs_properties_t *wyw_source_properties(void *data)
 			obs_property_set_visible(obs_properties_get(props, "whisper_params_group"),whisper_selected);
 			return true;
 		});
+
+	obs_properties_add_path(ppts, "ban_list_from_json", MT_("ban_list_from_json"), OBS_PATH_FILE, "JSON (*.json)", NULL);
+	obs_properties_add_text(ppts, "ban_list_fron_string", MT_("ban_list_fron_string"), OBS_TEXT_MULTILINE);
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
@@ -914,7 +957,7 @@ void getjson(void *data, char *jsonstring)
 
 	Document doc;
 	doc.Parse(json.c_str());
-	int i,j;
+	int i, j;
 	std::vector<std::string> temp;
 	Value &word = doc["ban"];
 	for (i = 0; i < word.Size(); i++) {
@@ -925,7 +968,6 @@ void getjson(void *data, char *jsonstring)
 		}
 		wf->bantext.push_back(temp);
 	}
-
 }
 
 void mkfile(std::string fname)
@@ -937,61 +979,6 @@ void mkfile(std::string fname)
 	return;
 }
 
-void wyw_frequency_write(void *data)
-{
-	struct wyw_source_data *wf = (struct wyw_source_data *)data;
-	std::vector<std::string> bnd = wf->banlist;
-	std::vector<std::int16_t> cnt = wf->bancnt;
-	std::vector<float> ps;
-	
-	for (int i = 0; i < cnt.size(); i++) {
-		float a = (float)cnt[i] / (float)(wf->normalcnt);
-		ps.push_back(a);
-	}
-	int i = 0;
-	time_t cTime = time(NULL);
-	struct tm *pLocal = localtime(&cTime);
-	std::fstream writeable;
-	std::string current_path = obs_frontend_get_current_record_output_path();
-	std::string result_path = "/result.txt";
-	std::string fname = current_path + result_path;
-	obs_log(LOG_INFO, "Recording stopped. write %s.", fname.c_str());
-	writeable.open(fname, ios::in);
-	if (!writeable.is_open()) {
-		mkfile(fname);
-	} else {
-		writeable.close();
-	}
-	writeable.open(fname, ios::app);
-	if (!writeable.is_open()) {
-		//fileopen err
-		return;
-	}
-
-	writeable.seekp(-2, ios::end);
-	std::string tmp;
-	char buf[50];
-	sprintf(buf, ",\"%04d-%02d-%02d  %02d:%02d\"", pLocal->tm_year + 1900,
-		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
-		pLocal->tm_min);
-	tmp = (std::string)buf;
-	writeable.write(tmp.c_str(), tmp.size());
-	
-	 while (i < bnd.size()) {
-		tmp = ",\"";
-		tmp.append(bnd[i]).append("\"");
-		sprintf(buf, ",\"%.2f", ps[i] * 100);
-		std::string pers = (std::string)buf;
-		pers.append("%%\"");
-		writeable.write(tmp.c_str(), tmp.size());
-		writeable.write(pers.c_str(), pers.size());
-		i++;
-	}
-	
-	writeable.write("]}", 2);
-	writeable.close();
-	
-}
 //example
 //{
 //	"key" : "stat"
@@ -1002,20 +989,16 @@ void wyw_frequency_write(void *data)
 //}
 //
 
-
-
-
-void daystate(std::string date)
+/* void daystate(std::string date)
 {
 	std::vector<std::string> banname;
 	std::vector<float> freq;
 	std::ifstream readable;
 	char *path = obs_frontend_get_current_record_output_path();
-	std::string fname = *path + "/stat.json";
+	std::string fname = *path + "result.txt";
 	std::string json;
 	readable.open(fname);
-	if (!readable.is_open())
-	{
+	if (!readable.is_open()) {
 		//fileopen err
 		return;
 	}
@@ -1051,12 +1034,223 @@ void daystate(std::string date)
 		}
 	}
 
+
 	return;
+}*/
+
+void daystat(const std::string &root, const std::string &date)
+{
+	int token=1;
+	std::ifstream ifs(root);
+	if (!ifs.is_open()) {
+		return;
+	}
+
+	std::string jsonContent((std::istreambuf_iterator<char>(ifs)),
+				(std::istreambuf_iterator<char>()));
+
+	ifs.close();
+	Document document;
+	document.Parse(jsonContent.c_str());
+	if (document.HasParseError()) {
+		return;
+	}
+
+	const char *targetDate = date.c_str();
+	bool foundDate = false;
+	std::string broadcasttype;
+
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string result_path = "/data.txt";
+	std::string fname = current_path + result_path;
+
+	std::vector<std::string> banname;
+	std::vector<int> bancnt;
+
+	for (SizeType i = 0; i < document["stat"].Size(); ++i) {
+		if (document["stat"][i].IsString() &&
+		    strcmp(document["stat"][i].GetString(), targetDate) == 0) {
+			foundDate = true;
+			broadcasttype = document["stat"][i].GetString();
+			i++;
+			continue;
+		}
+
+		if (foundDate) {
+			// 해당 날짜 이후부터 값을 파싱하여 파일에 저장합니다.
+			
+			std::string temp = document["stat"][i].GetString();
+			if (!atoi(temp.c_str())) {
+				banname.push_back(document["stat"][i].GetString());
+				temp = document["stat"][i+1].GetString();
+				bancnt.push_back(atoi(temp.c_str()));
+				i++;
+			} else {
+				token = atoi(temp.c_str());
+				break;
+			}
+		}
+	}
+
+	std::ofstream ofs(fname, std::ofstream::out);
+	ofs << targetDate << std::endl;
+	ofs << broadcasttype <<std::endl;
+	for (int i = 0; i < banname.size(); i++) {
+		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token*100
+		    << "%" << std::endl;
+	}
+	ofs << "토큰 수 :" << token << std::endl;
+	
+	ofs.close();
+
 }
 
-
-
-void monstate()
+void monstat(const std::string &root, const std::string &targetMonth)
 {
+	std::vector<std::string> banname;
+	std::vector<int> bancnt;
+	int token = 0;
+
+	std::ifstream ifs(root);
+	if (!ifs.is_open()) {
+		return;
+	}
+
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string result_path = "/data_month.txt";
+	std::string fname = current_path + result_path;
+
+	std::string jsonContent((std::istreambuf_iterator<char>(ifs)),
+				(std::istreambuf_iterator<char>()));
+
+	Document document;
+	document.Parse(jsonContent.c_str());
+
+
+	for (SizeType i = 0; i < document["stat"].Size(); i++) {
+		std::string date = document["stat"][i].GetString();
+		std::string sub = date.substr(0, 7);
+
+		if (sub.compare(targetMonth)) {
+			auto index = find(banname.begin(), banname.end(),
+					  document["stat"][i].GetString());
+			if (index== banname.end()) {
+				std::string temp = document["stat"][i].GetString();
+				if (!atoi(temp.c_str())) {
+					banname.push_back(
+						document["stat"][i].GetString());
+					temp = document["stat"][i + 1]
+						       .GetString();
+					bancnt.push_back(atoi(temp.c_str()));
+					i++;
+				} else {
+					token += atoi(temp.c_str());
+				}
+			} else {
+				bancnt[index-banname.begin()] +=
+					atoi(document["stat"][i + 1].GetString());
+			}
+		}
+	}
+
+	// 파일에 월별 통계를 저장합니다.
+	std::ofstream ofs(fname,ios::out);
+
+
+	ofs << targetMonth <<std::endl;
+	for (SizeType i = 0; i < banname.size();i++) {
+		ofs << banname[i] << " : "
+		    << (float)bancnt[i] / (float)token * 100 << "%"
+		    << std::endl;
+	}
+	ofs << "토큰 수 :" << token  << std::endl;
+	ofs.close();
+
+}
+
+void wyw_frequency_write(void *data)
+{
+	struct wyw_source_data *wf = (struct wyw_source_data *)data;
+	std::vector<std::string> bnd = wf->banlist;
+	std::vector<std::int16_t> cnt = wf->bancnt;
+	std::vector<float> ps;
+	if (wf->normalcnt == 0) {
+		return;
+	}
+
+	for (int i = 0; i < cnt.size(); i++) {
+		float a = (float)cnt[i] / (float)(wf->normalcnt);
+		ps.push_back(a);
+	}
+	int i = 0;
+	time_t cTime = time(NULL);
+	struct tm *pLocal = localtime(&cTime);
+	std::fstream writeable;
+	std::string ftext;
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string result_path = "/result.txt";
+	std::string fname = current_path + result_path;
+	obs_log(LOG_INFO, "Recording stopped. write %s.", fname.c_str());
+	writeable.open(fname, ios::in);
+	if (!writeable.is_open()) {
+		mkfile(fname);
+	} else {
+		writeable.close();
+	}
+	std::string gline;
+
+	writeable.open(fname, ios::in);
+	while (getline(writeable, gline)) {
+		ftext = ftext + gline;
+	}
+	if (ftext.length() > 3)
+		ftext.erase(ftext.length() - 2, 2);
+	writeable.close();
+
+	writeable.open(fname, ios::out);
+	if (!writeable.is_open()) {
+		//fileopen err
+		obs_log(LOG_INFO, "fopen err");
+		return;
+	}
+
+	writeable.write(ftext.c_str(), ftext.size());
+	obs_log(LOG_INFO, "ftext write");
+	std::string tmp;
+	char buf[50];
+	sprintf(buf, ",\"%04d-%02d-%02d %02d:%02d\"", pLocal->tm_year + 1900,
+		pLocal->tm_mon + 1, pLocal->tm_mday, pLocal->tm_hour,
+		pLocal->tm_min);
+	tmp = (std::string)buf;
+	writeable.write(tmp.c_str(), tmp.size());
+
+	if (wf->broadcast_type == nullptr) {
+		writeable.write(",\"none\"", 7);
+	} else {
+		tmp = ",\"" + (std::string)wf->broadcast_type + "\"";
+		writeable.write(tmp.c_str(), tmp.size());
+	}
+
+
+	while (i < bnd.size()) {
+		tmp = ",\"";
+		tmp.append(bnd[i]).append("\"");
+		sprintf(buf, ",\"%d\"", cnt[i]);
+		std::string pers = (std::string)buf;
+		writeable.write(tmp.c_str(), tmp.size());
+		writeable.write(pers.c_str(), pers.size());
+		i++;
+	}
+	{
+		sprintf(buf, ",\"%d\"", wf->normalcnt);
+		std::string pers = (std::string)buf;
+		writeable.write(pers.c_str(), pers.size());
+	}
+
+	writeable.write("]}", 2);
+	writeable.close();
 
 }
