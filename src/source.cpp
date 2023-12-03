@@ -493,6 +493,14 @@ void wyw_source_update(void *data, obs_data_t *s)
 		wf->banlist.push_back(std::string(a));
 		wf->bancnt.push_back(0);
 	}
+
+	const char *json_file_path = obs_data_get_string(s, "ban_list_from_json");
+	obs_log(LOG_INFO, "json_file_path : %s", json_file_path);
+	char *read_json = readJsonFromFile(json_file_path);
+	obs_data_set_string(s, "ban_list_from_string", read_json);
+	//getjson(data, read_json);
+	releaseMemory(read_json);
+
 	wf->channels = audio_output_get_channels(obs_get_audio());
 
 	wf->vad_enabled = obs_data_get_bool(s, "vad_enabled");
@@ -841,7 +849,7 @@ obs_properties_t *wyw_source_properties(void *data)
 		});
 
 	obs_properties_add_path(ppts, "ban_list_from_json", MT_("ban_list_from_json"), OBS_PATH_FILE, "JSON (*.json)", NULL);
-	obs_properties_add_text(ppts, "ban_list_fron_string", MT_("ban_list_fron_string"), OBS_TEXT_MULTILINE);
+	obs_properties_add_text(ppts, "ban_list_from_string", MT_("ban_list_from_string"), OBS_TEXT_MULTILINE);
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
@@ -1253,4 +1261,23 @@ void wyw_frequency_write(void *data)
 	writeable.write("]}", 2);
 	writeable.close();
 
+}
+
+char *readJsonFromFile(const char *filePath)
+{
+	std::ifstream file(filePath);
+	if (!file.is_open()) {
+		std::cerr << "Error opening file: " << filePath << std::endl;
+		return nullptr; // Changed to return nullptr in case of error
+	}
+	std::string jsonString((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+	file.close();
+	char *result = new char[jsonString.length() + 1];
+	strcpy(result, jsonString.c_str());
+	return result;
+}
+
+void releaseMemory(char *data)
+{
+	delete[] data;
 }

@@ -14,6 +14,8 @@ void wyw_source_deactivate(void *data);
 void wyw_source_defaults(obs_data_t *s);
 obs_properties_t *wyw_source_properties(void *data);
 void wyw_frequency_write(void *data);
+char *readJsonFromFile(const char *filePath);
+void releaseMemory(char *data)
 #ifdef __cplusplus
 }
 #endif
