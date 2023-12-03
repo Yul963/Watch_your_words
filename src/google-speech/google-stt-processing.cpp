@@ -13,7 +13,7 @@ namespace speech = ::google::cloud::speech;
 struct DetectionResultWithText run_google_speech_inference(struct wyw_source_data *wf,
 						     const uint8_t *pcm32_data, size_t pcm32_size, uint64_t start_timestamp)
 {
-	const uint64_t duration_ms = (uint64_t)(pcm32_size * 1000 / 16000);
+	const uint64_t duration_ms = (uint64_t)(pcm32_size / wf->bytes_per_channel * 1000 / 16000);
 	const uint64_t offset_ms = (uint64_t)(std::chrono::duration_cast<std::chrono::milliseconds>
 		(std::chrono::system_clock::now().time_since_epoch()).count() - wf->start_timestamp_ms);
 	std::string text;

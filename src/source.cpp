@@ -801,7 +801,6 @@ obs_properties_t *wyw_source_properties(void *data)
 		});
 
 	obs_properties_add_bool(ppts, "vad_enabled", MT_("vad_enabled"));
-	obs_properties_add_bool(ppts, "log_words", MT_("log_words"));
 	//obs_properties_add_bool(ppts, "caption_to_stream", MT_("caption_to_stream"));
 	obs_properties_add_bool(ppts, "process_while_muted", MT_("process_while_muted"));
 	obs_property_t *censor_output = obs_properties_add_bool(ppts, "censor", MT_("censor_with_delay"));
