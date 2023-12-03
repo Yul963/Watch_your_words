@@ -330,6 +330,39 @@ inline bool is_valid_lead_byte(const uint8_t *c)
 	return false;
 }
 
+void uploadcount(struct wyw_source_data *wf)
+{
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string public_path = "/public_page.txt";
+	std::string private_path = "/private_page.txt";
+
+	fstream writeable;
+	
+	std::string fname = current_path + private_path;
+	writeable.open(fname, ios::out);
+	for (SizeType i = 0; i < wf->banlist.size(); i++) {
+		writeable << wf->banlist[i] << " : "
+			  << (float)(wf->bancnt[i]) / (float)(wf->normalcnt) << "%"
+			  << std::endl;
+	}
+	writeable << "token :" << wf->normalcnt << std::endl;
+	writeable.close();
+	
+	fname = current_path + public_path;
+	writeable.open(fname, ios::out);
+	int totalcnt = 0;
+	for (SizeType i = 0; i < wf->banlist.size(); i++) {
+		totalcnt += wf->bancnt[i];
+	}
+	writeable << "비속어 :" << (float)totalcnt / (float)(wf->normalcnt)
+		  << "%"
+		  << std::endl;
+
+	writeable << "token :" << wf->normalcnt << std::endl;
+	writeable.close();
+}
+
 void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText &resultIn)
 {
 	DetectionResultWithText result = resultIn;
@@ -387,9 +420,10 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 				uint64_t a = (temp.end - temp.start);
 				obs_log(LOG_INFO,
 					"edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu", temp.start, temp.end, word.c_str(), a);
-			}
-		}
+			}	
 		i++;
+		}
+		uploadcount(wf);
 	}
 	wf->token_result.clear();
 	/*
@@ -992,7 +1026,7 @@ void mkfile(std::string fname)
 
 void daystat(const std::string &root, const std::string &date)
 {
-	int token;
+	int token=1;
 	std::ifstream ifs(root);
 	if (!ifs.is_open()) {
 		return;
@@ -1019,13 +1053,10 @@ void daystat(const std::string &root, const std::string &date)
 	std::vector<std::string> banname;
 	std::vector<int> bancnt;
 
-	std::ofstream ofs(fname, std::ofstream::out);
-
 	for (SizeType i = 0; i < document["stat"].Size(); ++i) {
 		if (document["stat"][i].IsString() &&
 		    strcmp(document["stat"][i].GetString(), targetDate) == 0) {
 			foundDate = true;
-			ofs << targetDate << std::endl;
 			continue;
 		}
 
@@ -1043,25 +1074,34 @@ void daystat(const std::string &root, const std::string &date)
 			}
 		}
 	}
-	if (!foundDate) {
-		return;
-	}
-	for (SizeType i = 0; i < banname.size(); i++) {
-		char *buf;
-		sprintf(buf, "%0.2f%", (float)bancnt[i] / (float)token);
-		ofs << banname[i] << " : " << buf  << std::endl;
+
+	std::ofstream ofs(fname, std::ofstream::out);
+	ofs << targetDate << std::endl;
+	for (int i = 0; i < banname.size(); i++) {
+		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token
+		    << "%" << std::endl;
 	}
 	ofs << "토큰 수 :" << token << std::endl;
+	
 	ofs.close();
 
 }
 
 void monstat(const std::string &root, const std::string &targetMonth)
 {
+	std::vector<std::string> banname;
+	std::vector<int> bancnt;
+	int token = 0;
+
 	std::ifstream ifs(root);
 	if (!ifs.is_open()) {
 		return;
 	}
+
+	std::string current_path =
+		obs_frontend_get_current_record_output_path();
+	std::string result_path = "/data_month.txt";
+	std::string fname = current_path + result_path;
 
 	std::string jsonContent((std::istreambuf_iterator<char>(ifs)),
 				(std::istreambuf_iterator<char>()));
@@ -1073,8 +1113,6 @@ void monstat(const std::string &root, const std::string &targetMonth)
 		return;
 	}
 
-	std::map<std::string, std::map<std::string, int>> monthlyStats;
-
 	for (SizeType i = 0; i < document["stat"].Size(); ++i) {
 		std::string date = document["stat"][i].GetString();
 		struct std::tm timeinfo;
@@ -1085,20 +1123,42 @@ void monstat(const std::string &root, const std::string &targetMonth)
 		std::string month(buffer);
 
 		if (month == targetMonth) {
-		
+			auto index = find(banname.begin(), banname.end(),
+					  document["stat"][i].GetString());
+			if (index== banname.end()) {
+				std::string temp = document["stat"][i].GetString();
+				if (!atoi(temp.c_str())) {
+					banname.push_back(
+						document["stat"][i].GetString());
+					temp = document["stat"][i + 1]
+						       .GetString();
+					bancnt.push_back(atoi(temp.c_str()));
+					i++;
+				} else {
+					token += atoi(temp.c_str());
+					break;
+				}
+			} else {
+				bancnt[index-banname.begin()] +=
+					atoi(document["stat"][i + 1].GetString());
+			}
 		}
 	}
 
 	// 파일에 월별 통계를 저장합니다.
-	std::ofstream ofs("monthly_stats.txt");
+	std::ofstream ofs(fname);
 	if (!ofs.is_open()) {
 		return;
 	}
 
-	ofs << "Monthly stats for " << targetMonth << ":\n";
-	for (const auto &data : monthlyStats[targetMonth]) {
-		ofs << data.first << " : " << data.second << std::endl;
+	 ofs << targetMonth <<std::endl;
+	for (SizeType i = 0; i < banname.size();i++) {
+		ofs << banname[i] << " : " << (float)bancnt[i] / (float)token
+		    << std::endl;
 	}
+	ofs << "토큰 수 :" << token << std::endl;
+	ofs.close();
+
 }
 
 void wyw_frequency_write(void *data)
@@ -1177,4 +1237,5 @@ void wyw_frequency_write(void *data)
 	writeable.close();
 
 	daystat(fname, "2023-12-03 03:06");
+	monstat(fname, "2023-12");
 }
