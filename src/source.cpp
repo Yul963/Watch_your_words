@@ -409,7 +409,6 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #endif
 	std::int16_t i = 0;
 	for (std::string &word : wf->banlist) {
-		i = 0;
 		for (edit_timestamp &temp : wf->token_result) {
 			if (i == 0){
 				wf->normalcnt += 1;
@@ -424,8 +423,8 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 			}	
 		i++;
 		}
-		uploadcount(wf);
 	}
+	uploadcount(wf);
 	wf->token_result.clear();
 	/*
 	if (wf->caption_to_stream) {
