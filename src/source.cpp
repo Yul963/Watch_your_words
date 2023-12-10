@@ -957,7 +957,35 @@ void wyw_source_deactivate(void *data)
 	wf->active = false;
 }
 
-void getjson(void *data, char *jsonstring)
+void getjson(void *data, const char *jsonStr)
+{
+	struct wyw_source_data *wf =
+		static_cast<struct wyw_source_data *>(data);
+
+	Document doc;
+	doc.Parse(jsonStr);
+
+	if (doc.HasParseError()) {
+		return;
+	}
+
+	const Value &banArray = doc["ban"];
+	for (SizeType i = 0; i < banArray.Size(); i++) {
+		const Value &banObject = banArray[i];
+		const char *word = banObject["word"].GetString();
+		const Value &listArray = banObject["list"];
+
+		wf->banlist.push_back(std::string(word));
+
+		std::vector<std::string> tempList;
+		for (SizeType j = 0; j < listArray.Size(); j++) {
+			const char *listItem = listArray[j].GetString();
+			tempList.push_back(std::string(listItem));
+		}
+		wf->bantext.push_back(tempList);
+	}
+}
+/* void getjson(void *data, char *jsonstring)
 {
 
 	struct wyw_source_data *wf = (struct wyw_source_data *)data;
@@ -976,7 +1004,7 @@ void getjson(void *data, char *jsonstring)
 		}
 		wf->bantext.push_back(temp);
 	}
-}
+} */
 
 void mkfile(std::string fname)
 {
