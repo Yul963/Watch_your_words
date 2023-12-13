@@ -5,7 +5,7 @@
 #include <utility>
 #include <string>
 #include <sstream>
-#include "src/util.h"
+#include "src/utils/util.h"
 #include <google/cloud/speech/speech_client.h>
 #include <google/cloud/common_options.h>
 namespace speech = ::google::cloud::speech;
@@ -77,13 +77,7 @@ struct DetectionResultWithText run_google_speech_inference(struct wyw_source_dat
 		obs_log(LOG_ERROR, "recognize exception string %s",ex.c_str());
 		return {DETECTION_RESULT_UNKNOWN, "", 0, 0};
 	} 
-	catch (grpc::Status &s) {
-		obs_log(LOG_INFO, "Recognize failed with:  %s, %d, %s",
-			s.error_message().c_str(), s.error_code(),
-			s.error_details().c_str());
-		return {DETECTION_RESULT_UNKNOWN, "", 0, 0};
-	} 
-	catch (google::cloud::v2_18::Status const &s) {
+	catch (google::cloud::v2_19::Status const &s) {//변경 필요
 		obs_log(LOG_INFO, "Recognize failed with:  %s, %d, %s",
 			s.message().c_str(), s.code(), s.error_info().domain().c_str());
 		return {DETECTION_RESULT_UNKNOWN, "", 0, 0};

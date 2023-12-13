@@ -1,5 +1,5 @@
 ﻿#include "whisper-processing.h"
-#include "src/util.h"
+#include "src/utils/util.h"
 //std::ofstream fout;
 
 std::vector<std::string> split_segment_text(const std::string &input)

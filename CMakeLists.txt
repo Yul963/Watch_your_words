@@ -88,9 +88,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_sources(
   ${CMAKE_PROJECT_NAME}
-  PRIVATE src/plugin-main.c src/source.cpp src/source.c src/whisper-processing.cpp
-          src/model-utils/model-downloader.cpp src/model-utils/model-downloader-ui.cpp src/frequency-utils/frequency-dock.cpp
-          src/audio-delay/audio_delay.c src/audio-delay/audio_delay.cpp src/video-delay/video_delay.c
-          src/google-speech/google-stt-processing.cpp src/util.cpp)
+  PRIVATE "src/plugin-main.c" "src/source.cpp" "src/source.c" "src/speech-to-text/whisper-processing.cpp"
+          "src/model-utils/model-downloader.cpp" "src/model-utils/model-downloader-ui.cpp" 
+          "src/frequency-utils/frequency-dock.cpp"
+          "src/delay-filters/audio_delay.c" "src/delay-filters/audio_delay.cpp" "src/delay-filters/video_delay.c"
+          "src/speech-to-text/google-stt-processing.cpp" "src/utils/util.cpp")
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

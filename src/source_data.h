@@ -31,7 +31,6 @@
 #include <filesystem>
 #include <google/cloud/speech/speech_client.h>
 #include "whisper.h"
-#include "rapidjson/document.h"
 
 #define MT_ obs_module_text
 #define DELAY_SEC 6
@@ -144,10 +143,9 @@ struct wyw_source_data {
 	bool edit = false;
 
 	char *edit_mode = nullptr;
+	char *json_string = nullptr;
 	uint64_t start_timestamp;
-	//struct obs_source_frame start_video_data;
 	std::vector<std::string> banlist;
-
 	std::vector<std::vector<std::string>> bantext;
 
 	std::int16_t normalcnt;
