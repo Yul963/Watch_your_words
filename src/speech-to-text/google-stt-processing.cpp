@@ -45,21 +45,21 @@ struct DetectionResultWithText run_google_speech_inference(struct wyw_source_dat
 		if (!client_response)throw std::move(client_response).status();
 		else {
 			for (auto const &result : client_response->results()) {
-				obs_log(LOG_INFO, "results_size: %d",client_response->results_size());
+				//obs_log(LOG_INFO, "results_size: %d",client_response->results_size());
 				for (auto const &alternative : result.alternatives()) {
-					obs_log(LOG_INFO,"alternatives_size: %d",result.alternatives_size());
+					//obs_log(LOG_INFO,"alternatives_size: %d",result.alternatives_size());
 					sentence_p = alternative.confidence();
 					text = alternative.transcript();
 					for (auto const &wordinfo : alternative.words()) {
-						obs_log(LOG_INFO,"words_size: %d", alternative.words_size());
+						//obs_log(LOG_INFO,"words_size: %d", alternative.words_size());
 						std::string word(wordinfo.word());
-						obs_log(LOG_INFO, "word: %s", word.c_str());
+						//obs_log(LOG_INFO, "word: %s", word.c_str());
 						google::protobuf::Duration start =wordinfo.start_time();
 						google::protobuf::Duration end =wordinfo.end_time();
-						obs_log(LOG_INFO,
-							"word time: %d.%d - %d.%d",
-							start.seconds(), start.nanos() / 100000000L,
-							end.seconds(), end.nanos() / 100000000L);
+						//obs_log(LOG_INFO,
+						//	"word time: %d.%d - %d.%d",
+						//	start.seconds(), start.nanos() / 100000000L,
+						//	end.seconds(), end.nanos() / 100000000L);
 						uint64_t t0 =start.seconds() *1000000000L +start.nanos();
 						uint64_t t1 =end.seconds() *1000000000L +end.nanos();
 						edit.emplace_back(word,t0 + start_timestamp,t1 + start_timestamp);

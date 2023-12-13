@@ -375,25 +375,22 @@ void set_text_callback(struct wyw_source_data *wf, const DetectionResultWithText
 #else
 	std::string str_copy = result.text;
 #endif
-	std::int16_t i = 0;
-	for (std::string &word : wf->banlist) {
-		i = 0;
-		for (edit_timestamp &temp : wf->token_result) {
-			if (i == 0){
-				wf->normalcnt += 1;
+	wf->normalcnt += wf->token_result.size();
+	for (int i = 0; i < wf->bantext.size();i++) {
+		for (std::string &word : wf->bantext[i]) {
+			for (edit_timestamp &temp : wf->token_result) {
+				if (temp.text.find(word) != std::string::npos) {
+					wf->bancnt[i] += 1;
+					std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
+					wf->timestamp_queue.push(temp);
+					uint64_t duration = (temp.end - temp.start);
+					obs_log(LOG_INFO, "edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu",
+						temp.start, temp.end, wf->banlist[i].c_str(), duration);
+				}
 			}
-			if (temp.text.find(word) != std::string::npos) {
-				wf->bancnt[i] += 1;
-				std::lock_guard<std::mutex> lock(*wf->timestamp_queue_mutex);
-				wf->timestamp_queue.push(temp);
-				uint64_t a = (temp.end - temp.start);
-				obs_log(LOG_INFO,
-					"edit timestamp added t0: %llu, t1: %llu word: %s dura: %llu", temp.start, temp.end, word.c_str(), a);
-			}	
-		i++;
 		}
-		uploadcount(wf);
 	}
+	uploadcount(wf);
 	wf->token_result.clear();
 
 	if (wf->output_file_path != "" && !wf->text_source_name) {
