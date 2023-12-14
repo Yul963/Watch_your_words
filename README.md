@@ -1,11 +1,13 @@
 https://cloud.google.com/docs/get-started?refresh=1&hl=ko
+https://cloud.google.com/speech-to-text/docs/before-you-begin?hl=ko
+https://github.com/googleapis/google-cloud-cpp/tree/main/google/cloud/speech/quickstart
 
-±¸±Û STT »ç¿ë ½Ã
-1. ±¸±Û Å¬¶ó¿ìµå ÄÜ¼Ö¿¡¼­ ÇÁ·ÎÁ§Æ® »ı¼º 
-2. Cloud Speech-to-Text API¸¦ È°¼ºÈ­
-3. ¼­ºñ½º °èÁ¤ Å°(JSON Çü½Ä) »ı¼º ÈÄ ´Ù¿î·Îµå
-4. GOOGLE_APPLICATION_CREDENTIALS È¯°æ º¯¼ö¸¦ ¼­ºñ½º °èÁ¤ Å° °æ·Î·Î ¼³Á¤
-5. @powershell -NoProfile -ExecutionPolicy unrestricted -Command (new-object System.Net.WebClient).Downloadfile('https://pki.google.com/roots.pem', 'roots.pem') cmd¿¡¼­ ½ÇÇà
-6. GRPC_DEFAULT_SSL_ROOTS_FILE_PATH È¯°æ º¯¼ö¸¦ ´Ù¿î·ÎµåµÈ roots.pem ÆÄÀÏ °æ·Î·Î ¼³Á¤
+êµ¬ê¸€ STT ì‚¬ìš© ì‹œ
+1. êµ¬ê¸€ í´ë¼ìš°ë“œ ì½˜ì†”ì—ì„œ í”„ë¡œì íŠ¸ ìƒì„± 
+2. Cloud Speech-to-Text APIë¥¼ í™œì„±í™”
+3. ì„œë¹„ìŠ¤ ê³„ì • í‚¤(JSON í˜•ì‹) ìƒì„± í›„ ë‹¤ìš´ë¡œë“œ
+4. GOOGLE_APPLICATION_CREDENTIALS í™˜ê²½ ë³€ìˆ˜ë¥¼ ì„œë¹„ìŠ¤ ê³„ì • í‚¤ ê²½ë¡œë¡œ ì„¤ì •
+5. @powershell -NoProfile -ExecutionPolicy unrestricted -Command (new-object System.Net.WebClient).Downloadfile('https://pki.google.com/roots.pem', 'roots.pem') cmdì—ì„œ ì‹¤í–‰
+6. GRPC_DEFAULT_SSL_ROOTS_FILE_PATH í™˜ê²½ ë³€ìˆ˜ë¥¼ ë‹¤ìš´ë¡œë“œëœ roots.pem íŒŒì¼ ê²½ë¡œë¡œ ì„¤ì •
 
-vcpkg.batÀº cmake Ä³½Ã »ı¼º °úÁ¤¿¡¼­ ÀÚµ¿À¸·Î ½ÇÇàµÇÁö¸¸ Ã³À½ ½ÇÇà ½Ã 20ºĞ Á¤µµ ½Ã°£ÀÌ °É¸®°í ½ÇÇà ·Î±×°¡ visual studio Ãâ·Â¿¡ ³ª¿ÀÁö ¾ÊÀ¸¹Ç·Î µû·Î ½ÇÇàÇÏ´Â °ÍÀ» ÃßÃµÇÔ.
+vcpkg.batì€ cmake ìºì‹œ ìƒì„± ê³¼ì •ì—ì„œ ìë™ìœ¼ë¡œ ì‹¤í–‰ë˜ì§€ë§Œ ì²˜ìŒ ì‹¤í–‰ ì‹œ 20ë¶„ ì •ë„ ì‹œê°„ì´ ê±¸ë¦¬ê³  ì‹¤í–‰ ë¡œê·¸ê°€ visual studio ì¶œë ¥ì— ë‚˜ì˜¤ì§€ ì•Šìœ¼ë¯€ë¡œ ë”°ë¡œ ì‹¤í–‰í•˜ëŠ” ê²ƒì„ ì¶”ì²œí•¨.
