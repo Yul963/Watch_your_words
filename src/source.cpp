@@ -777,9 +777,27 @@ void wyw_source_defaults(obs_data_t *s) {
 
 	obs_data_set_default_string(s, "edit_mode","beep");
 
-	obs_data_set_default_bool(s, "vad_enabled", true);
 	obs_data_set_default_string(s, "whisper_model_path", "models/ggml-base.bin");
-	obs_data_set_default_string(s, "subtitle_sources", "none");
+	obs_data_set_default_bool(s, "vad_enabled", true);
+	obs_data_set_default_string(s, "ban_list_from_string",
+				    "{\n"
+				    "\t\"title\": \"banlist\",\n"
+				    "\t\"version\": \"0.0\",\n"
+				    "\t\"ban\": [\n"
+				    "\t\t{\n"
+				    "\t\t\t\"word\": \"시발\",\n"
+				    "\t\t\t\"list\": [\"시발\", \"씨발\"]\n"
+				    "\t\t},\n"
+				    "\t\t{\n"
+				    "\t\t\t\"word\": \"개새끼\",\n"
+				    "\t\t\t\"list\": [\"개새끼\"]\n"
+				    "\t\t},\n"
+				    "\t\t{\n"
+				    "\t\t\t\"word\": \"좆\",\n"
+				    "\t\t\t\"list\": [\"좆\"]\n"
+				    "\t\t}\n"
+				    "\t]\n"
+				    "}");
 	obs_data_set_default_string(s, "broadcast_type", "none");
 	obs_data_set_default_string(s, "stt_select", "whisper");
 	obs_data_set_default_bool(s, "process_while_muted", false);
@@ -808,8 +826,6 @@ obs_properties_t *wyw_source_properties(void *data)
 
 	obs_property_list_add_string(stt_select, MT_("whisper"), "whisper");
 	obs_property_list_add_string(stt_select, MT_("google-stt"), "google-stt");
-
-	//obs_properties_add_text(ppts, MT_("google_api_key"), "google_api_key", \OBS_TEXT_DEFAULT);
 
 	obs_property_set_modified_callback(
 		stt_select,
